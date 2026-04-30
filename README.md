@@ -32,6 +32,7 @@ How to run
 In Freeplane, assign the F7 shortcut key to the script # SyncTabTitle1.groovy.
 Place the following script named "Periodic F7 Execution" (with .groovy extension) in the following folder:
 C:\Users<username>\AppData\Roaming\Freeplane\1.12.x\scripts\init
+`
 import java.awt.Robot
 import java.awt.event.KeyEvent
 import org.freeplane.features.mode.Controller
@@ -54,6 +55,8 @@ Thread.start {
         e.printStackTrace()
     }
 }
+`
+
 Note: If you want the # SyncTabTitle1.groovy script to run automatically and periodically, you must place the "Periodic F7 Execution" script inside the init folder. Otherwise, pressing F7 will run the script once, and the tab name will update only when you switch to another tab.
 
 For the script to work correctly, after opening Freeplane for the first time, close all maps and then start..
