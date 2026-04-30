@@ -28,34 +28,11 @@
 توص
 یه می‌شود تب‌های دارای آیکن قرمز را بلافاصله پس از تب نقشهٔ اصلی قرار دهید تا فایل‌های مختلف و زیرنقشه‌های هرکدام از یکدیگر تفکیک شوند
 
-How to run
+## How to run
 In Freeplane, assign the F7 shortcut key to the script # SyncTabTitle1.groovy.
 Place the following script named "Periodic F7 Execution" (with .groovy extension) in the following folder:
 C:\Users<username>\AppData\Roaming\Freeplane\1.12.x\scripts\init
-`
-import java.awt.Robot
-import java.awt.event.KeyEvent
-import org.freeplane.features.mode.Controller
-import javax.swing.SwingUtilities
 
-def mapViewComponent = Controller.getCurrentController().getMapViewManager().getMapViewComponent()
-def freeplaneFrame = SwingUtilities.getWindowAncestor(mapViewComponent)
-
-Thread.start {
-    try {
-        def robot = new Robot()
-        while (true) {
-            if (freeplaneFrame.isActive()) {
-                robot.keyPress(KeyEvent.VK_F7)
-                robot.keyRelease(KeyEvent.VK_F7)
-            }
-            Thread.sleep(4000)
-        }
-    } catch (Exception e) {
-        e.printStackTrace()
-    }
-}
-`
 
 Note: If you want the # SyncTabTitle1.groovy script to run automatically and periodically, you must place the "Periodic F7 Execution" script inside the init folder. Otherwise, pressing F7 will run the script once, and the tab name will update only when you switch to another tab.
 
@@ -77,32 +54,11 @@ Practical usage
 Open several .mm files at the same time – each main tab will get a green icon.
 Open a node in a New View – the new tab will get a red icon, and its title will change to the root node’s text.
 
-How to run
+##How to run
 In Freeplane, assign the F7 shortcut key to the script # SyncTabTitle1.groovy.
 Place the following script named "Periodic F7 Execution" (with .groovy extension) in the following folder:
 C:\Users<username>\AppData\Roaming\Freeplane\1.12.x\scripts\init
-import java.awt.Robot
-import java.awt.event.KeyEvent
-import org.freeplane.features.mode.Controller
-import javax.swing.SwingUtilities
 
-def mapViewComponent = Controller.getCurrentController().getMapViewManager().getMapViewComponent()
-def freeplaneFrame = SwingUtilities.getWindowAncestor(mapViewComponent)
-
-Thread.start {
-    try {
-        def robot = new Robot()
-        while (true) {
-            if (freeplaneFrame.isActive()) {
-                robot.keyPress(KeyEvent.VK_F7)
-                robot.keyRelease(KeyEvent.VK_F7)
-            }
-            Thread.sleep(4000)
-        }
-    } catch (Exception e) {
-        e.printStackTrace()
-    }
-}
 Note: If you want the # SyncTabTitle1.groovy script to run automatically and periodically, you must place the "Periodic F7 Execution" script inside the init folder. Otherwise, pressing F7 will run the script once, and the tab name will update only when you switch to another tab.
 
 For the script to work correctly, after opening Freeplane for the first time, close all maps and then start.
