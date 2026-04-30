@@ -1,0 +1,22 @@
+import java.awt.Robot
+import java.awt.event.KeyEvent
+import org.freeplane.features.mode.Controller
+import javax.swing.SwingUtilities
+
+def mapViewComponent = Controller.getCurrentController().getMapViewManager().getMapViewComponent()
+def freeplaneFrame = SwingUtilities.getWindowAncestor(mapViewComponent)
+
+Thread.start {
+    try {
+        def robot = new Robot()
+        while (true) {
+            if (freeplaneFrame.isActive()) {
+                robot.keyPress(KeyEvent.VK_F7)
+                robot.keyRelease(KeyEvent.VK_F7)
+            }
+            Thread.sleep(4000)
+        }
+    } catch (Exception e) {
+        e.printStackTrace()
+    }
+}
