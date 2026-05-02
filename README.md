@@ -1,22 +1,27 @@
 <details> <summary># SyncTabTitle2.groovy</summary>
 This script automatically distinguishes the main map from its secondary (sub‑map) views and assigns the following icons:
 
-Green icon (✳️) – for tabs representing the complete map (main file).
-Red icon (♀️) – for secondary views (sub‑maps / new views).
-Key features
-Icons (green/red) remain fixed – they never change.
-The file name of the main map never changes.
-For sub‑map tabs (with red icon) , the tab title updates automatically whenever the root node changes (e.g., when using "Jump in" or opening a node as root).
+- **Green icon (✳️)** – for tabs representing the complete map (main file).
+- **Red icon (♀️)** – for secondary views (sub‑maps / new views).
+
+### Key features
+
+- Icons (green/red) remain **fixed** – they never change.
+
+
 As a result, the tab panel always contains two distinct types:
 
-Main map tabs (✳️ green) – fixed title, representing the original files.
-Sub‑map tabs (♀️ red) – dynamic title, ideal for displaying nodes as roots.
-Practical usage
-You can open several .mm files at the same time; each main tab will have a green icon.
-If you want to stay focused on the same main map tab without creating a new tab, use the "Jump in" command. The green icon and the file name will remain unchanged – so you know that tab belongs exclusively to that one file.
-When you open a node in a New View, the new tab will have a red icon. This indicates that the tab is specifically meant for showing nodes as roots.
-Very important note
-It is strongly recommended to place all tabs with the red icon immediately after the main map tab – this way different files and their respective sub‑map tabs stay clearly separated.
+
+## Practical usage
+
+- You can open several `.mm` files at the same time; each main tab will have a green icon.
+- If you want to stay focused on the same main map tab without creating a new tab, use the **"Jump in"** command. The green icon and the file name will remain unchanged –
+- When you open a node in a **New View**, the new tab will have a red icon. This indicates that the tab is specifically meant for showing nodes as roots.
+
+ Very important note
+
+It is strongly recommended to **place all tabs with the red icon immediately after the main map tab** – this way different files and their respective sub‑map tabs stay clearly separated.
+
 
 ## How to run
 1. In Freeplane, assign the **F7** shortcut key to the script **# SyncTabTitle1.groovy**.
