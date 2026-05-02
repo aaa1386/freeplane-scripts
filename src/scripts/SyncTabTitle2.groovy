@@ -1,6 +1,7 @@
 // @ExecutionModes({ON_SINGLE_NODE="/main_menu/aaa1386"})
 // rename_tab_no_repeat.groovy
-//////🧩↗️ ♀️♻️✳️🪴آیکن های رنگی
+//🧩↗️ ♀️♻️✳️🪴آیکن های رنگی
+// تغییر داده شده: اگر تب آیکون سبز دارد و متن ریشه با تب مطابق نیست، تب هم‌سان با ریشه می‌شود.
 
 import org.freeplane.features.mode.Controller
 import javax.swing.*
@@ -22,48 +23,45 @@ def plainMapTitle = rawMapTitle.replaceAll("^[✳️♀️]*", "").trim()
 def plainNodeText = nodeText.replaceAll("^[✳️♀️]*", "").trim()
 
 def hasStar = currentTitle.startsWith("✳️")
-def hasPink = currentTitle.startsWith("♀️")   // آیکن صورتی (مخالف آیکن سبز)
+def hasPink = currentTitle.startsWith("♀️")
 
 def desired = null
 
-// ردیف 0: اگر آیکن صورتی داشت، اصلاً نقشه اصلی نیست
-if (hasPink) {
+// تغییر اصلی: اگر آیکون سبز دارد و متن تب با متن ریشه متفاوت است، همسان کن
+if (hasStar) {
+    if (plainNodeText != plainCurrentTitle) {
+        desired = "✳️" + plainNodeText
+    } else {
+        desired = null // بدون تغییر
+    }
+} else if (hasPink) {
     desired = "♀️" + plainNodeText
 } else {
+    // منطق قبلی برای حالت بدون آیکون
     if (plainCurrentTitle == plainMapTitle) {
-        // T == M
         if (plainCurrentTitle == plainNodeText) {
-            // T == M == R
             if (hasStar) {
-                // ردیف 2: هیچ دستکاری نمی‌شود
                 desired = null
             } else {
-                // ردیف 1: نقشه اصلی و کامل
                 desired = "✳️" + plainMapTitle
             }
         } else {
-            // T == M != R
             if (hasStar) {
-                // ردیف 3: نقشه اصلی است (همان فعلی)
                 desired = "✳️" + plainMapTitle
             } else {
-                // ردیف 4: نقشه اصلی نیست
                 desired = "♀️" + plainNodeText
             }
         }
     } else {
-        // ردیف 5: T != M
         desired = "♀️" + plainNodeText
     }
 }
 
-// اعمال تغییر فقط در صورتی که desired تعریف شده و با عنوان فعلی متفاوت باشد
 if (desired != null && currentTitle != desired) {
     mapView.setName(desired)
     forceUIRefresh(mapView, desired)
 }
 
-// ----- Function to force UI refresh (your working code) -----
 def forceUIRefresh(mapView, newTitle) {
     try {
         def viewClass = Class.forName("net.infonode.docking.View")
@@ -83,6 +81,6 @@ def forceUIRefresh(mapView, newTitle) {
             if (dockingView.parent) dockingView.parent.repaint()
         }
     } catch (Exception e) {
-        // silent fail
+        // خطا نادیده گرفته شود
     }
 }
