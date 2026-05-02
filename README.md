@@ -61,3 +61,8 @@ It assigns the following icons:
    C:\Users\<username>\AppData\Roaming\Freeplane\1.12.x\scripts\init
 
 </details>
+
+<details> <summary>aaa1386mapCrawlerAdvancedSearch</summary>
+ .
+</details>
+
