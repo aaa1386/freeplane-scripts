@@ -1,0 +1,741 @@
+// @ExecutionModes({ON_SINGLE_NODE="/main_menu/aaa1386"})
+
+import groovy.transform.Field
+import java.awt.*
+import java.awt.event.*
+import java.io.*
+import javax.swing.*
+import javax.swing.table.*
+import javax.swing.border.Border
+import org.freeplane.core.ui.components.UITools
+import org.freeplane.plugin.script.proxy.ScriptUtils
+import org.freeplane.api.Node
+import org.freeplane.core.resources.ResourceController
+import org.freeplane.core.ui.components.TagIcon
+import org.freeplane.features.icon.NamedIcon
+import org.freeplane.features.icon.IconController
+import org.freeplane.features.icon.mindmapmode.MIconController
+import org.freeplane.features.mode.mindmapmode.MModeController
+import org.freeplane.plugin.script.proxy.MapProxy
+import org.freeplane.features.map.NodeModel
+import org.freeplane.core.util.TextUtils
+import java.util.zip.CRC32
+import java.nio.charset.StandardCharsets
+import org.freeplane.core.ui.components.HSLColorConverter
+
+@Field static SimpleMapCrawler mapCrawler
+
+if (mapCrawler == null) {
+    mapCrawler = new SimpleMapCrawler()
+    return
+}
+mapCrawler.show()
+
+class SimpleMapCrawler {
+    private JDialog frame
+    private JTextField searchField
+    private JTable resultsTable
+    private DefaultTableModel tableModel
+    private String baseDir
+    private boolean matchCase = false
+    private boolean wholeWord = false
+    private JCheckBox coreCheck, detailsCheck, noteCheck
+    private JRadioButton folderRadio, openMapsRadio
+    private JRadioButton allScopeRadio, styleScopeRadio
+    private JTextField styleField
+    private JButton folderChooserBtn
+    private JLabel folderLabel
+    private boolean windowHidden = false
+    
+    // Preview components
+    private JTextArea previewCore
+    private JTextArea previewDetails
+    private JTextArea previewNote
+    private JPanel tagViewer
+    private JPanel breadcrumbPanel
+    private JLabel styleLabel
+    
+    
+    private static final Map<String, Color> PATH_COLORS = new HashMap()
+    
+    void show() {
+        if (frame != null) {
+            if (windowHidden) {
+                frame.setVisible(true)
+                windowHidden = false
+            }
+            if (!frame.isVisible()) {
+                frame.setVisible(true)
+            }
+            frame.toFront()
+            focusSearchField()
+            return
+        }
+        render()
+    }
+    
+    private void render() {
+        loadSettings()
+        frame = new JDialog(UITools.getCurrentFrame(), "MapCrawler - جستجوی پیشرفته", false)
+        frame.setLayout(new BorderLayout())
+        
+        // ========== پنل بالایی (جستجو) ==========
+        JPanel topPanel = new JPanel(new BorderLayout())
+        searchField = new JTextField(20)
+        searchField.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        JButton searchBtn = new JButton("🔍")
+        JPanel searchRow = new JPanel()
+        searchRow.add(searchField)
+        searchRow.add(searchBtn)
+        topPanel.add(searchRow, BorderLayout.NORTH)
+        
+        JPanel optsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+        folderRadio = new JRadioButton("Folder", true)
+        openMapsRadio = new JRadioButton("Open Maps")
+        ButtonGroup sourceGroup = new ButtonGroup()
+        sourceGroup.add(folderRadio)
+        sourceGroup.add(openMapsRadio)
+        optsPanel.add(folderRadio)
+        optsPanel.add(openMapsRadio)
+        
+        folderChooserBtn = new JButton("📁 انتخاب پوشه")
+        folderChooserBtn.addActionListener({ selectFolder() })
+        optsPanel.add(folderChooserBtn)
+        folderLabel = new JLabel(shortenPath(baseDir))
+        folderLabel.setToolTipText(baseDir)
+        optsPanel.add(folderLabel)
+        
+        folderRadio.addActionListener({ e -> 
+            folderChooserBtn.setEnabled(true)
+            folderLabel.setEnabled(true)
+        })
+        openMapsRadio.addActionListener({ e -> 
+            folderChooserBtn.setEnabled(false)
+            folderLabel.setEnabled(false)
+        })
+        optsPanel.add(new JSeparator(SwingConstants.VERTICAL))
+        
+        allScopeRadio = new JRadioButton("همه", true)
+        styleScopeRadio = new JRadioButton("سبک خاص")
+        ButtonGroup scopeGroup = new ButtonGroup()
+        scopeGroup.add(allScopeRadio)
+        scopeGroup.add(styleScopeRadio)
+        optsPanel.add(allScopeRadio)
+        optsPanel.add(styleScopeRadio)
+        styleField = new JTextField(10)
+        styleField.setEnabled(false)
+        styleField.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        optsPanel.add(styleField)
+        styleScopeRadio.addActionListener({ styleField.setEnabled(styleScopeRadio.isSelected()) })
+        allScopeRadio.addActionListener({ styleField.setEnabled(false); styleField.setText("") })
+        optsPanel.add(new JSeparator(SwingConstants.VERTICAL))
+        
+        coreCheck = new JCheckBox("متن اصلی", true)
+        detailsCheck = new JCheckBox("جزئیات", false)
+        noteCheck = new JCheckBox("یادداشت", false)
+        optsPanel.add(coreCheck)
+        optsPanel.add(detailsCheck)
+        optsPanel.add(noteCheck)
+        optsPanel.add(new JSeparator(SwingConstants.VERTICAL))
+        
+        JCheckBox matchCaseCB = new JCheckBox("Aa")
+        matchCaseCB.addActionListener({ matchCase = matchCaseCB.isSelected() })
+        JCheckBox wholeWordCB = new JCheckBox("کامل")
+        wholeWordCB.addActionListener({ wholeWord = wholeWordCB.isSelected() })
+        optsPanel.add(matchCaseCB)
+        optsPanel.add(wholeWordCB)
+        
+        topPanel.add(optsPanel, BorderLayout.SOUTH)
+        frame.add(topPanel, BorderLayout.NORTH)
+        
+        // ========== پنل ناوبری (Breadcrumb) ==========
+        breadcrumbPanel = new JPanel()
+        breadcrumbPanel.setLayout(new BoxLayout(breadcrumbPanel, BoxLayout.LINE_AXIS))
+        breadcrumbPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        breadcrumbPanel.setBackground(UIManager.getColor("Panel.background"))
+        
+        // ========== پنل پیش‌نمایش (سمت چپ) بدون هیچ خط افقی ==========
+        JPanel leftPreviewPanel = new JPanel(new BorderLayout())
+        leftPreviewPanel.setBorder(BorderFactory.createEmptyBorder())
+        
+        JPanel topPreviewPanel = new JPanel(new BorderLayout())
+        topPreviewPanel.setBackground(leftPreviewPanel.getBackground())
+        topPreviewPanel.setBorder(BorderFactory.createEmptyBorder())
+        
+        styleLabel = new JLabel()
+        styleLabel.setFont(styleLabel.getFont().deriveFont(Font.ITALIC, 10f))
+        styleLabel.setForeground(Color.GRAY)
+        styleLabel.setHorizontalAlignment(SwingConstants.RIGHT)
+        styleLabel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        styleLabel.setBorder(BorderFactory.createEmptyBorder())
+        topPreviewPanel.add(styleLabel, BorderLayout.NORTH)
+        
+        tagViewer = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5))
+        tagViewer.setBackground(leftPreviewPanel.getBackground())
+        tagViewer.setBorder(BorderFactory.createEmptyBorder())
+        tagViewer.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        topPreviewPanel.add(tagViewer, BorderLayout.CENTER)
+        
+        previewCore = new JTextArea()
+        previewCore.setEditable(false)
+        previewCore.setLineWrap(true)
+        previewCore.setWrapStyleWord(true)
+        previewCore.setMargin(new Insets(10,10,10,10))
+        previewCore.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        previewCore.setBorder(BorderFactory.createEmptyBorder())
+        Font defaultFont = UIManager.getFont("Label.font")
+        previewCore.setFont(defaultFont.deriveFont( (float)(defaultFont.getSize() + 4) ))
+        
+        previewDetails = new JTextArea()
+        previewDetails.setEditable(false)
+        previewDetails.setLineWrap(true)
+        previewDetails.setWrapStyleWord(true)
+        previewDetails.setMargin(new Insets(10,10,10,10))
+        previewDetails.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        previewDetails.setBorder(BorderFactory.createEmptyBorder())
+        previewDetails.setFont(defaultFont.deriveFont(Font.ITALIC))
+        
+        previewNote = new JTextArea()
+        previewNote.setEditable(false)
+        previewNote.setLineWrap(true)
+        previewNote.setWrapStyleWord(true)
+        previewNote.setMargin(new Insets(10,10,10,10))
+        previewNote.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        previewNote.setBorder(BorderFactory.createEmptyBorder())
+        previewNote.setFont(defaultFont)
+        
+        JPanel textPanel = new JPanel(new GridBagLayout())
+        textPanel.setBorder(BorderFactory.createEmptyBorder())
+        textPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        GridBagConstraints gbc = new GridBagConstraints()
+        gbc.gridx = 0
+        gbc.fill = GridBagConstraints.HORIZONTAL
+        gbc.weightx = 1
+        gbc.anchor = GridBagConstraints.NORTH
+        gbc.insets = new Insets(5,5,5,5)
+        
+        gbc.gridy = 0
+        gbc.weighty = 0
+        textPanel.add(previewCore, gbc)
+        
+        gbc.gridy = 1
+        textPanel.add(previewDetails, gbc)
+        
+        gbc.gridy = 2
+        textPanel.add(previewNote, gbc)
+        
+        JScrollPane previewScroll = new JScrollPane(textPanel)
+        previewScroll.setBorder(BorderFactory.createEmptyBorder())
+        previewScroll.setViewportBorder(BorderFactory.createEmptyBorder())
+        previewScroll.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+        previewScroll.getViewport().setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+        previewScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER)
+        
+        leftPreviewPanel.add(topPreviewPanel, BorderLayout.NORTH)
+        leftPreviewPanel.add(previewScroll, BorderLayout.CENTER)
+        
+        // ========== جدول نتایج بدون خطوط افقی و بدون اسکرول افقی ==========
+        tableModel = new DefaultTableModel(["پرونده", "سبک", "گره"] as Object[], 0)
+        resultsTable = new JTable(tableModel)
+        resultsTable.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        resultsTable.getTableHeader().setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        
+        // حذف خطوط افقی (و عمودی) جدول
+        resultsTable.setShowHorizontalLines(false)
+        resultsTable.setShowVerticalLines(false)
+        resultsTable.setIntercellSpacing(new Dimension(0, 0)) // حذف فاصله بین سلول‌ها
+        
+        // مرتب‌سازی
+        TableRowSorter<TableModel> sorter = new TableRowSorter<>(tableModel)
+        sorter.setComparator(2, new Comparator<Object>() {
+            @Override
+            int compare(Object o1, Object o2) {
+                String s1 = getNodeTextFromValue(o1)
+                String s2 = getNodeTextFromValue(o2)
+                if (s1 == null) return (s2 == null) ? 0 : -1
+                if (s2 == null) return 1
+                return s1.compareTo(s2)
+            }
+        })
+        resultsTable.setRowSorter(sorter)
+        
+        // رندر راست‌چین برای دو ستون اول
+        DefaultTableCellRenderer rightRenderer = new DefaultTableCellRenderer()
+        rightRenderer.setHorizontalAlignment(SwingConstants.RIGHT)
+        resultsTable.getColumnModel().getColumn(0).setCellRenderer(rightRenderer)
+        resultsTable.getColumnModel().getColumn(1).setCellRenderer(rightRenderer)
+        
+        // رندر سفارشی برای ستون گره
+        resultsTable.getColumnModel().getColumn(2).setCellRenderer(new NodeCellWrapRenderer())
+        
+        // تنظیم حالت خودکار اندازه ستون‌ها برای جلوگیری از اسکرول افقی
+        resultsTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS)
+        // تنظیم عرض اولیه ترجیحی (با AUTO_RESIZE_ALL_COLUMNS این مقادیر نسبی هستند)
+        resultsTable.getColumnModel().getColumn(0).setPreferredWidth(150)
+        resultsTable.getColumnModel().getColumn(1).setPreferredWidth(100)
+        resultsTable.getColumnModel().getColumn(2).setPreferredWidth(400)
+        resultsTable.getColumnModel().getColumn(0).setMinWidth(80)
+        resultsTable.getColumnModel().getColumn(1).setMinWidth(60)
+        resultsTable.setDefaultEditor(Object, null)
+        
+        // انتخاب سطر
+        resultsTable.getSelectionModel().addListSelectionListener({ e ->
+            if (e.getValueIsAdjusting()) return
+            int row = resultsTable.getSelectedRow()
+            if (row != -1) showNodeDetails(row)
+            else clearPreview()
+        })
+        
+        // دبل کلیک و Enter برای رفتن به گره
+        resultsTable.addMouseListener(new MouseAdapter() {
+            void mouseClicked(MouseEvent e) {
+                if (e.clickCount == 2) {
+                    int row = resultsTable.selectedRow
+                    if (row != -1) goToNode(row)
+                }
+            }
+        })
+        resultsTable.addKeyListener(new KeyAdapter() {
+            void keyPressed(KeyEvent e) {
+                if (e.keyCode == KeyEvent.VK_ENTER) {
+                    int row = resultsTable.selectedRow
+                    if (row != -1) goToNode(row)
+                }
+            }
+        })
+        
+        JScrollPane tableScroll = new JScrollPane(resultsTable)
+        tableScroll.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        tableScroll.getViewport().setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        tableScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER)
+        
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPreviewPanel, tableScroll)
+        splitPane.setResizeWeight(0.35)
+        splitPane.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+        
+        JPanel centerPanel = new JPanel(new BorderLayout())
+        centerPanel.add(breadcrumbPanel, BorderLayout.NORTH)
+        centerPanel.add(splitPane, BorderLayout.CENTER)
+        
+        frame.add(centerPanel, BorderLayout.CENTER)
+        
+        // ========== نوار پایین ==========
+        JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.LEFT))
+        JButton minimizeBtn = new JButton("_")
+        minimizeBtn.setToolTipText("مخفی کردن پنجره (بازیابی با اجرای مجدد اسکریپت)")
+        minimizeBtn.setFont(minimizeBtn.getFont().deriveFont(Font.BOLD, 14f))
+        minimizeBtn.addActionListener({ e ->
+            frame.setVisible(false)
+            windowHidden = true
+        })
+        statusBar.add(minimizeBtn)
+        statusBar.add(folderChooserBtn)
+        statusBar.add(folderLabel)
+        frame.add(statusBar, BorderLayout.SOUTH)
+        
+        frame.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(
+            KeyStroke.getKeyStroke(KeyEvent.VK_J, InputEvent.ALT_DOWN_MASK), "hideWindow")
+        frame.getRootPane().getActionMap().put("hideWindow", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                frame.setVisible(false)
+                windowHidden = true
+            }
+        })
+        
+        searchBtn.addActionListener({ doSearch() })
+        searchField.addActionListener({ doSearch() })
+        
+        frame.setSize(1000, 700)
+        frame.setLocationRelativeTo(UITools.getCurrentFrame())
+        frame.setVisible(true)
+        
+        focusSearchField()
+    }
+    
+    private String getNodeTextFromValue(Object value) {
+        Node node = null
+        if (value instanceof Object[] && ((Object[]) value).length > 0) {
+            node = ((Object[]) value)[0] as Node
+        } else if (value instanceof Node) {
+            node = value as Node
+        }
+        return node?.plainText ?: ""
+    }
+    
+    private void loadSettings() {
+        def rc = ResourceController.getResourceController()
+        String saved = rc.getProperty("mapcrawler.lastUsedDir")
+        if (saved != null && !saved.isEmpty() && new File(saved).exists()) {
+            baseDir = saved
+        } else {
+            baseDir = "D:\\AJ\\OneDrive\\FP"
+        }
+    }
+    
+    private void saveSettings() {
+        ResourceController.getResourceController().setProperty("mapcrawler.lastUsedDir", baseDir)
+    }
+    
+    private void selectFolder() {
+        JFileChooser fc = new JFileChooser()
+        fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY)
+        fc.setDialogTitle("انتخاب پوشه حاوی فایل‌های .mm")
+        if (baseDir != null && new File(baseDir).exists()) {
+            fc.setCurrentDirectory(new File(baseDir))
+        }
+        if (fc.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
+            baseDir = fc.getSelectedFile().absolutePath
+            folderLabel.setText(shortenPath(baseDir))
+            folderLabel.setToolTipText(baseDir)
+            saveSettings()
+            tableModel.setRowCount(0)
+            clearPreview()
+        }
+    }
+    
+    private String shortenPath(String path) {
+        if (path.length() <= 40) return path
+        return "..." + path.substring(path.length() - 37)
+    }
+    
+    private void clearPreview() {
+        tagViewer.removeAll()
+        styleLabel.setText("")
+        previewCore.setText("")
+        previewDetails.setText("")
+        previewNote.setText("")
+        breadcrumbPanel.removeAll()
+        resetTextAreaHeight(previewCore)
+        resetTextAreaHeight(previewDetails)
+        resetTextAreaHeight(previewNote)
+        tagViewer.revalidate()
+        tagViewer.repaint()
+        breadcrumbPanel.revalidate()
+        breadcrumbPanel.repaint()
+    }
+    
+    private void adjustTextAreaHeight(JTextArea ta) {
+        try {
+            int lines = ta.getLineCount()
+            if (lines == 0 || (lines == 1 && ta.getText().trim().isEmpty())) {
+                ta.setRows(2)
+            } else {
+                ta.setRows(lines + 1)
+            }
+        } catch (Exception ex) { }
+    }
+    
+    private void resetTextAreaHeight(JTextArea ta) {
+        ta.setRows(2)
+    }
+    
+    private void showNodeDetails(int row) {
+        int modelRow = resultsTable.convertRowIndexToModel(row)
+        Object value = tableModel.getValueAt(modelRow, 2)
+        Node node = null
+        if (value instanceof Object[] && ((Object[]) value).length > 0) {
+            node = ((Object[]) value)[0] as Node
+        } else if (value instanceof Node) {
+            node = value as Node
+        }
+        if (node == null) {
+            clearPreview()
+            return
+        }
+        
+        NodeModel nodeModel = getNodeModel(node)
+        
+        String styleName = node.getStyle()?.getName()
+        styleLabel.setText(styleName != null && !styleName.isEmpty() ? "سبک: " + styleName : "")
+        
+        tagViewer.removeAll()
+        def icons = iconController().getIcons(nodeModel, org.freeplane.features.styles.LogicalStyleController.StyleOption.FOR_UNSELECTED_NODE)
+        def tags = iconController().getTagIcons(nodeModel)
+        for (NamedIcon ic : icons) tagViewer.add(new JLabel(ic.getIcon()))
+        for (TagIcon tg : tags) tagViewer.add(new JLabel(tg))
+        tagViewer.revalidate()
+        tagViewer.repaint()
+        
+        previewCore.setText(node.getPlainText() ?: "")
+        previewDetails.setText(node.getDetails() != null ? node.getDetails().getPlain() : "")
+        previewNote.setText(node.getNote() != null ? node.getNote().getPlain() : "")
+        
+        adjustTextAreaHeight(previewCore)
+        adjustTextAreaHeight(previewDetails)
+        adjustTextAreaHeight(previewNote)
+        
+        // ========== ساخت نوار ناوبری ==========
+        breadcrumbPanel.removeAll()
+        java.util.List<Node> fullPath = node.getPathToRoot()
+        int maxNodes = 5
+        java.util.List<Node> displayPath = new ArrayList<Node>()
+        if (fullPath.size() <= maxNodes) {
+            displayPath.addAll(fullPath)
+        } else {
+            displayPath.addAll(fullPath.subList(fullPath.size() - maxNodes, fullPath.size()))
+            JLabel ellipsis = new JLabel(" ... ")
+            ellipsis.setFont(ellipsis.getFont().deriveFont(Font.BOLD))
+            breadcrumbPanel.add(ellipsis)
+            JLabel arrow = new JLabel(" ← ")
+            arrow.setFont(arrow.getFont().deriveFont(Font.BOLD))
+            breadcrumbPanel.add(arrow)
+        }
+        
+        ButtonGroup bg = new ButtonGroup()
+        for (int i = 0; i < displayPath.size(); i++) {
+            Node n = displayPath.get(i)
+            String shortText = TextUtils.getShortText(n.getPlainText(), 20, "\u2026")
+            JRadioButton btn = new JRadioButton(shortText)
+            btn.setToolTipText(n.getPlainText())
+            btn.setFont(btn.getFont().deriveFont(Font.PLAIN))
+            btn.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6))
+            btn.setOpaque(false)
+            btn.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+            btn.setHorizontalTextPosition(SwingConstants.LEADING)
+            final Node targetNode = n
+            btn.addActionListener({ e ->
+                try {
+                    ScriptUtils.c().select(targetNode)
+                    def mapFile = targetNode.getMindMap().getFile()
+                    if (mapFile) {
+                        def uri = mapFile.toURI().toString() + "#" + targetNode.getId()
+                        def link = new org.freeplane.core.util.Hyperlink(new URI(uri))
+                        org.freeplane.features.url.UrlManager.getController().loadHyperlink(link)
+                    }
+                } catch (Exception ex) { ex.printStackTrace() }
+            })
+            breadcrumbPanel.add(btn)
+            bg.add(btn)
+            if (i < displayPath.size() - 1) {
+                JLabel arrow = new JLabel(" ← ")
+                arrow.setFont(arrow.getFont().deriveFont(Font.BOLD))
+                breadcrumbPanel.add(arrow)
+            }
+        }
+        if (breadcrumbPanel.getComponentCount() > 0) {
+            for (Component comp : breadcrumbPanel.getComponents()) {
+                if (comp instanceof JRadioButton) ((JRadioButton) comp).setSelected(false)
+            }
+            Component last = breadcrumbPanel.getComponent(breadcrumbPanel.getComponentCount() - 1)
+            if (last instanceof JRadioButton) ((JRadioButton) last).setSelected(true)
+            else if (breadcrumbPanel.getComponentCount() > 1) {
+                Component secondLast = breadcrumbPanel.getComponent(breadcrumbPanel.getComponentCount() - 2)
+                if (secondLast instanceof JRadioButton) ((JRadioButton) secondLast).setSelected(true)
+            }
+        }
+        breadcrumbPanel.revalidate()
+        breadcrumbPanel.repaint()
+    }
+    
+    private void doSearch() {
+        String keyword = searchField.text.trim()
+        if (keyword.isEmpty()) return
+        
+        boolean searchCore = coreCheck.selected
+        boolean searchDetails = detailsCheck.selected
+        boolean searchNote = noteCheck.selected
+        if (!searchCore && !searchDetails && !searchNote) {
+            JOptionPane.showMessageDialog(frame, "حداقل یک گزینه جستجو انتخاب کنید")
+            return
+        }
+        
+        def styleNames = []
+        if (styleScopeRadio.selected) {
+            String raw = styleField.text.trim()
+            if (raw.isEmpty()) {
+                JOptionPane.showMessageDialog(frame, "نام سبک را وارد کنید")
+                return
+            }
+            styleNames = raw.split(/[;,\\.]+/).collect{ it.trim() }.findAll{ !it.isEmpty() }
+            if (styleNames.isEmpty()) {
+                JOptionPane.showMessageDialog(frame, "نام سبک معتبر وارد کنید (با ویرگول، نقطه ویرگول یا نقطه جدا کنید)")
+                return
+            }
+        }
+        
+        tableModel.setRowCount(0)
+        clearPreview()
+        
+        def maps = []
+        if (folderRadio.selected) {
+            File dir = new File(baseDir)
+            if (!dir.exists() || !dir.isDirectory()) {
+                JOptionPane.showMessageDialog(frame, "پوشه نامعتبر: $baseDir")
+                return
+            }
+            def files = dir.listFiles().findAll { it.name.endsWith(".mm") }
+            if (files.isEmpty()) {
+                JOptionPane.showMessageDialog(frame, "هیچ فایل .mm در پوشه یافت نشد")
+                return
+            }
+            files.each { file ->
+                try {
+                    def map = ScriptUtils.c().mapLoader(file).mindMap
+                    maps << map
+                } catch (Exception e) {
+                    println "خطا در بارگذاری $file.name: $e.message"
+                }
+            }
+        } else {
+            maps = ScriptUtils.c().openMindMaps
+            if (maps.isEmpty()) {
+                JOptionPane.showMessageDialog(frame, "هیچ نقشه‌ای باز نیست")
+                return
+            }
+        }
+        
+        if (maps.isEmpty()) {
+            JOptionPane.showMessageDialog(frame, "هیچ نقشه‌ای برای جستجو یافت نشد")
+            return
+        }
+        
+        for (def map : maps) {
+            try {
+                map.root.findAll().each { node ->
+                    if (isMatch(node, keyword, styleNames, searchCore, searchDetails, searchNote)) {
+                        String fileName = map.file?.name ?: "بدون نام"
+                        String styleName = node.style?.name ?: "(بدون سبک)"
+                        tableModel.addRow([ fileName, styleName, [node] as Object[] ] as Object[])
+                        String pathKey = map.file?.absolutePath ?: "unsaved"
+                        if (!PATH_COLORS.containsKey(pathKey)) {
+                            PATH_COLORS.put(pathKey, determineStringColor(pathKey))
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                println "خطا در نقشه ${map.file?.name}: $e.message"
+            }
+        }
+        
+        if (tableModel.rowCount == 0) {
+            JOptionPane.showMessageDialog(frame, "نتیجه‌ای یافت نشد")
+        } else {
+            JOptionPane.showMessageDialog(frame, "${tableModel.rowCount} نتیجه یافت شد")
+        }
+    }
+    
+    private boolean isMatch(Node node, String keyword, def styleNames,
+                            boolean searchCore, boolean searchDetails, boolean searchNote) {
+        if (styleScopeRadio.selected && styleNames) {
+            String nodeStyle = node.style?.name
+            if (!nodeStyle || !styleNames.contains(nodeStyle)) return false
+        }
+        String kw = matchCase ? keyword : keyword.toLowerCase()
+        if (searchCore) {
+            String text = node.plainText ?: ""
+            if (!matchCase) text = text.toLowerCase()
+            if (wholeWord ? text ==~ /.*\b$kw\b.*/ : text.contains(kw)) return true
+        }
+        if (searchDetails && node.details?.plain) {
+            String text = node.details.plain
+            if (!matchCase) text = text.toLowerCase()
+            if (wholeWord ? text ==~ /.*\b$kw\b.*/ : text.contains(kw)) return true
+        }
+        if (searchNote && node.note?.plain) {
+            String text = node.note.plain
+            if (!matchCase) text = text.toLowerCase()
+            if (wholeWord ? text ==~ /.*\b$kw\b.*/ : text.contains(kw)) return true
+        }
+        return false
+    }
+    
+    private void goToNode(int row) {
+        int modelRow = resultsTable.convertRowIndexToModel(row)
+        Object value = tableModel.getValueAt(modelRow, 2)
+        Node node = null
+        if (value instanceof Object[] && ((Object[]) value).length > 0) {
+            node = ((Object[]) value)[0] as Node
+        } else if (value instanceof Node) {
+            node = value as Node
+        }
+        if (node != null) {
+            try {
+                ScriptUtils.c().select(node)
+                def mapFile = node.mindMap.file
+                if (mapFile) {
+                    def uri = mapFile.toURI().toString() + "#" + node.id
+                    def link = new org.freeplane.core.util.Hyperlink(new URI(uri))
+                    org.freeplane.features.url.UrlManager.getController().loadHyperlink(link)
+                }
+            } catch (Exception e) {
+                e.printStackTrace()
+                JOptionPane.showMessageDialog(frame, "خطا در رفتن به گره: ${e.message}")
+            }
+        }
+    }
+    
+    private void focusSearchField() {
+        SwingUtilities.invokeLater({
+            if (searchField != null) {
+                searchField.requestFocusInWindow()
+                searchField.selectAll()
+            }
+        })
+    }
+    
+    class NodeCellWrapRenderer extends JTextArea implements TableCellRenderer {
+        NodeCellWrapRenderer() {
+            setLineWrap(true)
+            setWrapStyleWord(true)
+            setMargin(new Insets(5, 5, 5, 5))
+            setOpaque(true)
+            setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2))
+        }
+        
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            Node node = null
+            if (value instanceof Object[] && ((Object[]) value).length > 0) {
+                node = ((Object[]) value)[0] as Node
+            } else if (value instanceof Node) {
+                node = value as Node
+            }
+            String displayText = node != null ? (node.plainText ?: "") : ""
+            String shortText = TextUtils.getShortText(displayText, 80, "\u2026")
+            setText(shortText)
+            setToolTipText(displayText)
+            
+            Color borderColor = Color.GRAY
+            if (node != null && node.mindMap?.file != null) {
+                String path = node.mindMap.file.absolutePath
+                if (PATH_COLORS.containsKey(path)) {
+                    borderColor = PATH_COLORS.get(path)
+                }
+            }
+            // فقط حاشیه عمودی سمت راست (برای نشان دادن فایل) - بدون خط افقی
+            Border border = BorderFactory.createMatteBorder(0, 5, 0, 0, borderColor)
+            setBorder(BorderFactory.createCompoundBorder(border, BorderFactory.createEmptyBorder(0, 10, 0, 10)))
+            
+            setBackground(isSelected ? table.getSelectionBackground() : table.getBackground())
+            setForeground(isSelected ? table.getSelectionForeground() : table.getForeground())
+            setFont(table.getFont())
+            
+            // تنظیم ارتفاع سطر بر اساس محتوا (برای نمایش کامل متن)
+            setSize(table.getColumnModel().getColumn(column).getWidth(), Short.MAX_VALUE)
+            int preferredHeight = getPreferredSize().height + 10
+            if (table.getRowHeight(row) != preferredHeight) {
+                table.setRowHeight(row, preferredHeight)
+            }
+            return this
+        }
+    }
+    
+    private static MIconController iconController() {
+        return (MIconController) getModeController().getExtension(IconController.class)
+    }
+    
+    private static MModeController getModeController() {
+        return MModeController.getMModeController()
+    }
+    
+    private static NodeModel getNodeModel(Node node) {
+        return ((MapProxy) node.getMindMap()).getDelegate().getNodeForID(node.getId())
+    }
+    
+    private static Color determineStringColor(String str) {
+        CRC32 crc = new CRC32()
+        crc.update(str.getBytes(StandardCharsets.UTF_8))
+        return HSLColorConverter.generateColorFromLong(crc.getValue())
+    }
+}
