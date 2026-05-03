@@ -28,6 +28,7 @@
  */
 
 
+
 import groovy.transform.Field
 import java.awt.*
 import java.awt.event.*
@@ -55,12 +56,12 @@ import org.freeplane.core.ui.components.HSLColorConverter
 
 if (mapCrawler == null) {
     mapCrawler = new SimpleMapCrawler()
+    mapCrawler.toggle()   // نمایش پنل در اولین اجرا
     return
 }
-mapCrawler.show()
+mapCrawler.toggle()       // بستن/باز کردن پنل در اجراهای بعدی
 
 class SimpleMapCrawler {
-    private JDialog frame
     private JTextField searchField
     private JTable resultsTable
     private DefaultTableModel tableModel
@@ -73,7 +74,6 @@ class SimpleMapCrawler {
     private JTextField styleField
     private JButton folderChooserBtn
     private JLabel folderLabel
-    private boolean windowHidden = false
     
     // Preview components
     private JTextArea previewCore
@@ -82,30 +82,61 @@ class SimpleMapCrawler {
     private JPanel tagViewer
     private JPanel breadcrumbPanel
     private JLabel styleLabel
-    private ScrollableTextPanel textPanel   // تغییر: از کلاس جدید استفاده می‌شود
+    private ScrollableTextPanel textPanel
     
     private static final Map<String, Color> PATH_COLORS = new HashMap()
     
-    void show() {
-        if (frame != null) {
-            if (windowHidden) {
-                frame.setVisible(true)
-                windowHidden = false
-            }
-            if (!frame.isVisible()) {
-                frame.setVisible(true)
-            }
-            frame.toFront()
-            focusSearchField()
-            return
+    // برای مدیریت پنل یکپارچه
+    private Container originalContentPane = null
+    private JSplitPane currentSplitPane = null
+    
+    void toggle() {
+        if (currentSplitPane != null) {
+            closePanel()
+        } else {
+            show()
         }
-        render()
     }
     
-    private void render() {
+    void show() {
+        def mainFrame = UITools.getCurrentFrame()
+        // اگر پنل قبلاً وجود دارد نباید دوباره ساخته شود
+        if (currentSplitPane != null) return
+        
+        // ذخیره محتوای اصلی (فقط اگر قبلاً ذخیره نشده)
+        if (originalContentPane == null) {
+            originalContentPane = mainFrame.getContentPane()
+        }
+        
         loadSettings()
-        frame = new JDialog(UITools.getCurrentFrame(), "MapCrawler - جستجوی پیشرفته", false)
-        frame.setLayout(new BorderLayout())
+        JPanel searchPanel = createSearchPanel()
+        currentSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+                                          originalContentPane,
+                                          searchPanel)
+        currentSplitPane.setResizeWeight(0.75)
+        currentSplitPane.setOneTouchExpandable(true)
+        mainFrame.setContentPane(currentSplitPane)
+        mainFrame.revalidate()
+        mainFrame.repaint()
+        
+        focusSearchField()
+    }
+    
+    private void closePanel() {
+        if (currentSplitPane == null) return
+        def mainFrame = UITools.getCurrentFrame()
+        if (originalContentPane != null) {
+            mainFrame.setContentPane(originalContentPane)
+            mainFrame.revalidate()
+            mainFrame.repaint()
+        }
+        currentSplitPane = null
+        // originalContentPane را نگه می‌داریم تا در下次 show دوباره استفاده شود
+    }
+    
+    private JPanel createSearchPanel() {
+        JPanel mainPanel = new JPanel(new BorderLayout())
+        mainPanel.setPreferredSize(new Dimension(400, 0)) // عرض پنل
         
         // ========== پنل بالایی (جستجو) ==========
         JPanel topPanel = new JPanel(new BorderLayout())
@@ -118,8 +149,8 @@ class SimpleMapCrawler {
         topPanel.add(searchRow, BorderLayout.NORTH)
         
         JPanel optsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
-        folderRadio = new JRadioButton("Folder", true)
-        openMapsRadio = new JRadioButton("Open Maps")
+        folderRadio = new JRadioButton("پوشه", true)
+        openMapsRadio = new JRadioButton("نقشه‌های باز")
         ButtonGroup sourceGroup = new ButtonGroup()
         sourceGroup.add(folderRadio)
         sourceGroup.add(openMapsRadio)
@@ -174,7 +205,6 @@ class SimpleMapCrawler {
         optsPanel.add(wholeWordCB)
         
         topPanel.add(optsPanel, BorderLayout.SOUTH)
-        frame.add(topPanel, BorderLayout.NORTH)
         
         // ========== پنل ناوبری (Breadcrumb) ==========
         breadcrumbPanel = new JPanel()
@@ -182,7 +212,7 @@ class SimpleMapCrawler {
         breadcrumbPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
         breadcrumbPanel.setBackground(UIManager.getColor("Panel.background"))
         
-        // ========== پنل پیش‌نمایش (سمت چپ) ==========
+        // ========== پنل پیش‌نمایش (سمت چپ داخلی) ==========
         JPanel leftPreviewPanel = new JPanel(new BorderLayout())
         leftPreviewPanel.setBorder(BorderFactory.createEmptyBorder())
         
@@ -204,7 +234,6 @@ class SimpleMapCrawler {
         tagViewer.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
         topPreviewPanel.add(tagViewer, BorderLayout.CENTER)
         
-        // ساخت JTextAreaها
         previewCore = new JTextArea()
         previewCore.setEditable(false)
         previewCore.setLineWrap(true)
@@ -233,7 +262,6 @@ class SimpleMapCrawler {
         previewNote.setBorder(BorderFactory.createEmptyBorder())
         previewNote.setFont(defaultFont)
         
-        // استفاده از ScrollableTextPanel به جای JPanel ساده
         textPanel = new ScrollableTextPanel()
         textPanel.add(previewCore)
         textPanel.add(Box.createRigidArea(new Dimension(0, 10)))
@@ -248,7 +276,6 @@ class SimpleMapCrawler {
         previewScroll.getViewport().setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
         previewScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER)
         
-        // افزودن listener برای تغییر اندازه - به‌روزرسانی layout
         previewScroll.addComponentListener(new ComponentAdapter() {
             @Override
             void componentResized(ComponentEvent e) {
@@ -328,48 +355,31 @@ class SimpleMapCrawler {
         tableScroll.getViewport().setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
         tableScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER)
         
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPreviewPanel, tableScroll)
-        splitPane.setResizeWeight(0.35)
-        splitPane.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+        JSplitPane innerSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPreviewPanel, tableScroll)
+        innerSplitPane.setResizeWeight(0.35)
+        innerSplitPane.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
         
         JPanel centerPanel = new JPanel(new BorderLayout())
         centerPanel.add(breadcrumbPanel, BorderLayout.NORTH)
-        centerPanel.add(splitPane, BorderLayout.CENTER)
+        centerPanel.add(innerSplitPane, BorderLayout.CENTER)
         
-        frame.add(centerPanel, BorderLayout.CENTER)
+        mainPanel.add(topPanel, BorderLayout.NORTH)
+        mainPanel.add(centerPanel, BorderLayout.CENTER)
         
-        // نوار پایین
+        // نوار پایین (با دکمه بستن)
         JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.LEFT))
-        JButton minimizeBtn = new JButton("_")
-        minimizeBtn.setToolTipText("مخفی کردن پنجره (بازیابی با اجرای مجدد اسکریپت)")
-        minimizeBtn.setFont(minimizeBtn.getFont().deriveFont(Font.BOLD, 14f))
-        minimizeBtn.addActionListener({ e ->
-            frame.setVisible(false)
-            windowHidden = true
-        })
-        statusBar.add(minimizeBtn)
+        JButton closeBtn = new JButton("✖")
+        closeBtn.setToolTipText("بستن پنل جستجو")
+        closeBtn.addActionListener({ closePanel() })
+        statusBar.add(closeBtn)
         statusBar.add(folderChooserBtn)
         statusBar.add(folderLabel)
-        frame.add(statusBar, BorderLayout.SOUTH)
-        
-        frame.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(
-            KeyStroke.getKeyStroke(KeyEvent.VK_J, InputEvent.ALT_DOWN_MASK), "hideWindow")
-        frame.getRootPane().getActionMap().put("hideWindow", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                frame.setVisible(false)
-                windowHidden = true
-            }
-        })
+        mainPanel.add(statusBar, BorderLayout.SOUTH)
         
         searchBtn.addActionListener({ doSearch() })
         searchField.addActionListener({ doSearch() })
         
-        frame.setSize(1000, 700)
-        frame.setLocationRelativeTo(UITools.getCurrentFrame())
-        frame.setVisible(true)
-        
-        focusSearchField()
+        return mainPanel
     }
     
     private String getNodeTextFromValue(Object value) {
@@ -388,7 +398,7 @@ class SimpleMapCrawler {
         if (saved != null && !saved.isEmpty() && new File(saved).exists()) {
             baseDir = saved
         } else {
-            baseDir = "D:\\AJ\\OneDrive\\FP"
+            baseDir = "D:\\AJ\\OneDrive\\FP"  // مسیر پیش‌فرض را根据自己的 نیاز تغییر دهید
         }
     }
     
@@ -403,7 +413,7 @@ class SimpleMapCrawler {
         if (baseDir != null && new File(baseDir).exists()) {
             fc.setCurrentDirectory(new File(baseDir))
         }
-        if (fc.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
+        if (fc.showOpenDialog(UITools.getCurrentFrame()) == JFileChooser.APPROVE_OPTION) {
             baseDir = fc.getSelectedFile().absolutePath
             folderLabel.setText(shortenPath(baseDir))
             folderLabel.setToolTipText(baseDir)
@@ -425,7 +435,6 @@ class SimpleMapCrawler {
         previewDetails.setText("")
         previewNote.setText("")
         breadcrumbPanel.removeAll()
-        // فقط layout را به‌روز می‌کنیم (بدون دستکاری rows)
         textPanel.revalidate()
         textPanel.repaint()
         tagViewer.revalidate()
@@ -465,7 +474,6 @@ class SimpleMapCrawler {
         previewDetails.setText(node.getDetails() != null ? node.getDetails().getPlain() : "")
         previewNote.setText(node.getNote() != null ? node.getNote().getPlain() : "")
         
-        // به‌روزرسانی layout
         textPanel.revalidate()
         textPanel.repaint()
         
@@ -540,7 +548,7 @@ class SimpleMapCrawler {
         boolean searchDetails = detailsCheck.selected
         boolean searchNote = noteCheck.selected
         if (!searchCore && !searchDetails && !searchNote) {
-            JOptionPane.showMessageDialog(frame, "حداقل یک گزینه جستجو انتخاب کنید")
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "حداقل یک گزینه جستجو انتخاب کنید")
             return
         }
         
@@ -548,12 +556,12 @@ class SimpleMapCrawler {
         if (styleScopeRadio.selected) {
             String raw = styleField.text.trim()
             if (raw.isEmpty()) {
-                JOptionPane.showMessageDialog(frame, "نام سبک را وارد کنید")
+                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "نام سبک را وارد کنید")
                 return
             }
-            styleNames = raw.split(/[;,\\.]+/).collect{ it.trim() }.findAll{ !it.isEmpty() }
+            styleNames = raw.split(/[;,\.]+/).collect{ it.trim() }.findAll{ !it.isEmpty() }
             if (styleNames.isEmpty()) {
-                JOptionPane.showMessageDialog(frame, "نام سبک معتبر وارد کنید (با ویرگول، نقطه ویرگول یا نقطه جدا کنید)")
+                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "نام سبک معتبر وارد کنید (با ویرگول، نقطه ویرگول یا نقطه جدا کنید)")
                 return
             }
         }
@@ -565,12 +573,12 @@ class SimpleMapCrawler {
         if (folderRadio.selected) {
             File dir = new File(baseDir)
             if (!dir.exists() || !dir.isDirectory()) {
-                JOptionPane.showMessageDialog(frame, "پوشه نامعتبر: $baseDir")
+                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "پوشه نامعتبر: $baseDir")
                 return
             }
             def files = dir.listFiles().findAll { it.name.endsWith(".mm") }
             if (files.isEmpty()) {
-                JOptionPane.showMessageDialog(frame, "هیچ فایل .mm در پوشه یافت نشد")
+                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "هیچ فایل .mm در پوشه یافت نشد")
                 return
             }
             files.each { file ->
@@ -584,13 +592,13 @@ class SimpleMapCrawler {
         } else {
             maps = ScriptUtils.c().openMindMaps
             if (maps.isEmpty()) {
-                JOptionPane.showMessageDialog(frame, "هیچ نقشه‌ای باز نیست")
+                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "هیچ نقشه‌ای باز نیست")
                 return
             }
         }
         
         if (maps.isEmpty()) {
-            JOptionPane.showMessageDialog(frame, "هیچ نقشه‌ای برای جستجو یافت نشد")
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "هیچ نقشه‌ای برای جستجو یافت نشد")
             return
         }
         
@@ -613,8 +621,10 @@ class SimpleMapCrawler {
         }
         
         if (tableModel.rowCount == 0) {
-            JOptionPane.showMessageDialog(frame, "نتیجه‌ای یافت نشد")
-        } 
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "نتیجه‌ای یافت نشد")
+        } else {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "${tableModel.rowCount} نتیجه یافت شد")
+        }
     }
     
     private boolean isMatch(Node node, String keyword, def styleNames,
@@ -662,7 +672,7 @@ class SimpleMapCrawler {
                 }
             } catch (Exception e) {
                 e.printStackTrace()
-                JOptionPane.showMessageDialog(frame, "خطا در رفتن به گره: ${e.message}")
+                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "خطا در رفتن به گره: ${e.message}")
             }
         }
     }
@@ -732,7 +742,7 @@ class SimpleMapCrawler {
         
         @Override
         boolean getScrollableTracksViewportWidth() {
-            return true   // کلید اصلی حل مشکل
+            return true
         }
         
         @Override
@@ -756,7 +766,7 @@ class SimpleMapCrawler {
         }
     }
     
-    // ======================= متدهای کمکی استاتیک =======================
+    // ======================= متدهای کمکی =======================
     private static MIconController iconController() {
         return (MIconController) getModeController().getExtension(IconController.class)
     }
