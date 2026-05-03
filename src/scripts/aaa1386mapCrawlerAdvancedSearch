@@ -82,7 +82,7 @@ class SimpleMapCrawler {
     private JPanel tagViewer
     private JPanel breadcrumbPanel
     private JLabel styleLabel
-    
+    private ScrollableTextPanel textPanel   // تغییر: از کلاس جدید استفاده می‌شود
     
     private static final Map<String, Color> PATH_COLORS = new HashMap()
     
@@ -182,7 +182,7 @@ class SimpleMapCrawler {
         breadcrumbPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
         breadcrumbPanel.setBackground(UIManager.getColor("Panel.background"))
         
-        // ========== پنل پیش‌نمایش (سمت چپ) بدون هیچ خط افقی ==========
+        // ========== پنل پیش‌نمایش (سمت چپ) ==========
         JPanel leftPreviewPanel = new JPanel(new BorderLayout())
         leftPreviewPanel.setBorder(BorderFactory.createEmptyBorder())
         
@@ -204,6 +204,7 @@ class SimpleMapCrawler {
         tagViewer.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
         topPreviewPanel.add(tagViewer, BorderLayout.CENTER)
         
+        // ساخت JTextAreaها
         previewCore = new JTextArea()
         previewCore.setEditable(false)
         previewCore.setLineWrap(true)
@@ -232,25 +233,13 @@ class SimpleMapCrawler {
         previewNote.setBorder(BorderFactory.createEmptyBorder())
         previewNote.setFont(defaultFont)
         
-        JPanel textPanel = new JPanel(new GridBagLayout())
-        textPanel.setBorder(BorderFactory.createEmptyBorder())
-        textPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-        GridBagConstraints gbc = new GridBagConstraints()
-        gbc.gridx = 0
-        gbc.fill = GridBagConstraints.HORIZONTAL
-        gbc.weightx = 1
-        gbc.anchor = GridBagConstraints.NORTH
-        gbc.insets = new Insets(5,5,5,5)
-        
-        gbc.gridy = 0
-        gbc.weighty = 0
-        textPanel.add(previewCore, gbc)
-        
-        gbc.gridy = 1
-        textPanel.add(previewDetails, gbc)
-        
-        gbc.gridy = 2
-        textPanel.add(previewNote, gbc)
+        // استفاده از ScrollableTextPanel به جای JPanel ساده
+        textPanel = new ScrollableTextPanel()
+        textPanel.add(previewCore)
+        textPanel.add(Box.createRigidArea(new Dimension(0, 10)))
+        textPanel.add(previewDetails)
+        textPanel.add(Box.createRigidArea(new Dimension(0, 10)))
+        textPanel.add(previewNote)
         
         JScrollPane previewScroll = new JScrollPane(textPanel)
         previewScroll.setBorder(BorderFactory.createEmptyBorder())
@@ -259,21 +248,30 @@ class SimpleMapCrawler {
         previewScroll.getViewport().setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
         previewScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER)
         
+        // افزودن listener برای تغییر اندازه - به‌روزرسانی layout
+        previewScroll.addComponentListener(new ComponentAdapter() {
+            @Override
+            void componentResized(ComponentEvent e) {
+                SwingUtilities.invokeLater({
+                    textPanel.revalidate()
+                    previewScroll.revalidate()
+                })
+            }
+        })
+        
         leftPreviewPanel.add(topPreviewPanel, BorderLayout.NORTH)
         leftPreviewPanel.add(previewScroll, BorderLayout.CENTER)
         
-        // ========== جدول نتایج بدون خطوط افقی و بدون اسکرول افقی ==========
+        // ========== جدول نتایج ==========
         tableModel = new DefaultTableModel(["پرونده", "سبک", "گره"] as Object[], 0)
         resultsTable = new JTable(tableModel)
         resultsTable.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
         resultsTable.getTableHeader().setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
         
-        // حذف خطوط افقی (و عمودی) جدول
         resultsTable.setShowHorizontalLines(false)
         resultsTable.setShowVerticalLines(false)
-        resultsTable.setIntercellSpacing(new Dimension(0, 0)) // حذف فاصله بین سلول‌ها
+        resultsTable.setIntercellSpacing(new Dimension(0, 0))
         
-        // مرتب‌سازی
         TableRowSorter<TableModel> sorter = new TableRowSorter<>(tableModel)
         sorter.setComparator(2, new Comparator<Object>() {
             @Override
@@ -287,18 +285,13 @@ class SimpleMapCrawler {
         })
         resultsTable.setRowSorter(sorter)
         
-        // رندر راست‌چین برای دو ستون اول
         DefaultTableCellRenderer rightRenderer = new DefaultTableCellRenderer()
         rightRenderer.setHorizontalAlignment(SwingConstants.RIGHT)
         resultsTable.getColumnModel().getColumn(0).setCellRenderer(rightRenderer)
         resultsTable.getColumnModel().getColumn(1).setCellRenderer(rightRenderer)
-        
-        // رندر سفارشی برای ستون گره
         resultsTable.getColumnModel().getColumn(2).setCellRenderer(new NodeCellWrapRenderer())
         
-        // تنظیم حالت خودکار اندازه ستون‌ها برای جلوگیری از اسکرول افقی
         resultsTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS)
-        // تنظیم عرض اولیه ترجیحی (با AUTO_RESIZE_ALL_COLUMNS این مقادیر نسبی هستند)
         resultsTable.getColumnModel().getColumn(0).setPreferredWidth(150)
         resultsTable.getColumnModel().getColumn(1).setPreferredWidth(100)
         resultsTable.getColumnModel().getColumn(2).setPreferredWidth(400)
@@ -306,7 +299,6 @@ class SimpleMapCrawler {
         resultsTable.getColumnModel().getColumn(1).setMinWidth(60)
         resultsTable.setDefaultEditor(Object, null)
         
-        // انتخاب سطر
         resultsTable.getSelectionModel().addListSelectionListener({ e ->
             if (e.getValueIsAdjusting()) return
             int row = resultsTable.getSelectedRow()
@@ -314,7 +306,6 @@ class SimpleMapCrawler {
             else clearPreview()
         })
         
-        // دبل کلیک و Enter برای رفتن به گره
         resultsTable.addMouseListener(new MouseAdapter() {
             void mouseClicked(MouseEvent e) {
                 if (e.clickCount == 2) {
@@ -347,7 +338,7 @@ class SimpleMapCrawler {
         
         frame.add(centerPanel, BorderLayout.CENTER)
         
-        // ========== نوار پایین ==========
+        // نوار پایین
         JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.LEFT))
         JButton minimizeBtn = new JButton("_")
         minimizeBtn.setToolTipText("مخفی کردن پنجره (بازیابی با اجرای مجدد اسکریپت)")
@@ -434,28 +425,13 @@ class SimpleMapCrawler {
         previewDetails.setText("")
         previewNote.setText("")
         breadcrumbPanel.removeAll()
-        resetTextAreaHeight(previewCore)
-        resetTextAreaHeight(previewDetails)
-        resetTextAreaHeight(previewNote)
+        // فقط layout را به‌روز می‌کنیم (بدون دستکاری rows)
+        textPanel.revalidate()
+        textPanel.repaint()
         tagViewer.revalidate()
         tagViewer.repaint()
         breadcrumbPanel.revalidate()
         breadcrumbPanel.repaint()
-    }
-    
-    private void adjustTextAreaHeight(JTextArea ta) {
-        try {
-            int lines = ta.getLineCount()
-            if (lines == 0 || (lines == 1 && ta.getText().trim().isEmpty())) {
-                ta.setRows(2)
-            } else {
-                ta.setRows(lines + 1)
-            }
-        } catch (Exception ex) { }
-    }
-    
-    private void resetTextAreaHeight(JTextArea ta) {
-        ta.setRows(2)
     }
     
     private void showNodeDetails(int row) {
@@ -489,11 +465,11 @@ class SimpleMapCrawler {
         previewDetails.setText(node.getDetails() != null ? node.getDetails().getPlain() : "")
         previewNote.setText(node.getNote() != null ? node.getNote().getPlain() : "")
         
-        adjustTextAreaHeight(previewCore)
-        adjustTextAreaHeight(previewDetails)
-        adjustTextAreaHeight(previewNote)
+        // به‌روزرسانی layout
+        textPanel.revalidate()
+        textPanel.repaint()
         
-        // ========== ساخت نوار ناوبری ==========
+        // ساخت نوار ناوبری (Breadcrumb)
         breadcrumbPanel.removeAll()
         java.util.List<Node> fullPath = node.getPathToRoot()
         int maxNodes = 5
@@ -638,9 +614,7 @@ class SimpleMapCrawler {
         
         if (tableModel.rowCount == 0) {
             JOptionPane.showMessageDialog(frame, "نتیجه‌ای یافت نشد")
-        } else {
-            JOptionPane.showMessageDialog(frame, "${tableModel.rowCount} نتیجه یافت شد")
-        }
+        } 
     }
     
     private boolean isMatch(Node node, String keyword, def styleNames,
@@ -702,6 +676,7 @@ class SimpleMapCrawler {
         })
     }
     
+    // ======================= کلاس رندر جدول =======================
     class NodeCellWrapRenderer extends JTextArea implements TableCellRenderer {
         NodeCellWrapRenderer() {
             setLineWrap(true)
@@ -731,7 +706,6 @@ class SimpleMapCrawler {
                     borderColor = PATH_COLORS.get(path)
                 }
             }
-            // فقط حاشیه عمودی سمت راست (برای نشان دادن فایل) - بدون خط افقی
             Border border = BorderFactory.createMatteBorder(0, 5, 0, 0, borderColor)
             setBorder(BorderFactory.createCompoundBorder(border, BorderFactory.createEmptyBorder(0, 10, 0, 10)))
             
@@ -739,7 +713,6 @@ class SimpleMapCrawler {
             setForeground(isSelected ? table.getSelectionForeground() : table.getForeground())
             setFont(table.getFont())
             
-            // تنظیم ارتفاع سطر بر اساس محتوا (برای نمایش کامل متن)
             setSize(table.getColumnModel().getColumn(column).getWidth(), Short.MAX_VALUE)
             int preferredHeight = getPreferredSize().height + 10
             if (table.getRowHeight(row) != preferredHeight) {
@@ -749,6 +722,41 @@ class SimpleMapCrawler {
         }
     }
     
+    // ======================= کلاس پنل قابل اسکرول با عرض تطبیقی =======================
+    class ScrollableTextPanel extends JPanel implements Scrollable {
+        ScrollableTextPanel() {
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS))
+            setBorder(BorderFactory.createEmptyBorder())
+            setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        }
+        
+        @Override
+        boolean getScrollableTracksViewportWidth() {
+            return true   // کلید اصلی حل مشکل
+        }
+        
+        @Override
+        boolean getScrollableTracksViewportHeight() {
+            return false
+        }
+        
+        @Override
+        Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize()
+        }
+        
+        @Override
+        int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 10
+        }
+        
+        @Override
+        int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width
+        }
+    }
+    
+    // ======================= متدهای کمکی استاتیک =======================
     private static MIconController iconController() {
         return (MIconController) getModeController().getExtension(IconController.class)
     }
