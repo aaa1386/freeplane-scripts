@@ -128,6 +128,7 @@ class SimpleMapCrawler {
     private Font fontPreviewCore = null
     private Font fontPreviewDetails = null
     private Font fontPreviewNote = null
+    private Font fontBreadcrumb = null      // فونت برادکرامپ
     
     void toggle() {
         if (currentSplitPane == null) {
@@ -214,7 +215,7 @@ class SimpleMapCrawler {
         JPanel mainPanel = new JPanel(new BorderLayout())
         mainPanel.setMinimumSize(new Dimension(50, 0))
         
-        // ========== خط اول (با انتقال AA/WW به این خط) ==========
+        // ========== خط اول ==========
         JPanel firstLine = new JPanel(new GridBagLayout())
         firstLine.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
         GridBagConstraints gbc = new GridBagConstraints()
@@ -245,8 +246,6 @@ class SimpleMapCrawler {
         gbc.gridx = 4; gbc.weightx = 0
         firstLine.add(searchBtn, gbc)
         
-        
-        // چک‌باکس‌های AA و WW در سمت راست دکمه جستجو
         matchCaseCB = new JCheckBox("AA")
         matchCaseCB.addActionListener({ matchCase = matchCaseCB.isSelected() })
         matchCaseCB.setToolTipText("matchCase:تطابق حروف بزرگ و کوچک")
@@ -257,7 +256,7 @@ class SimpleMapCrawler {
         gbc.gridx = 5; gbc.weightx = 0; firstLine.add(matchCaseCB, gbc)
         gbc.gridx = 6; firstLine.add(wholeWordCB, gbc)
         
-        // ========== خط دوم (منابع جستجو شامل Root) ==========
+        // ========== خط دوم (منابع جستجو با ترتیب All, Style, ..., Branch) ==========
         JPanel secondLine = new JPanel(new GridBagLayout())
         secondLine.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
         gbc = new GridBagConstraints()
@@ -270,21 +269,20 @@ class SimpleMapCrawler {
         openMapsRadio = new JRadioButton("Open Maps")
         selectedDescRadio = new JRadioButton("Branch")
         selectedSibRadio = new JRadioButton("Siblings")
-        rootRadio = new JRadioButton("Root")   // گزینه جدید
+        rootRadio = new JRadioButton("Root")
         
         sourceGroup = new ButtonGroup()
         sourceGroup.add(folderRadio)
         sourceGroup.add(openMapsRadio)
         sourceGroup.add(selectedDescRadio)
         sourceGroup.add(selectedSibRadio)
-        sourceGroup.add(rootRadio)   // اضافه به گروه
+        sourceGroup.add(rootRadio)
         
         folderChooserBtn = new JButton("📁 Choose Folder")
         folderChooserBtn.addActionListener({ selectFolder() })
         folderLabel = new JLabel(shortenPath(baseDir))
         folderLabel.setToolTipText(baseDir)
         
-        // مدیریت فعال/غیرفعال شدن دکمه انتخاب پوشه (شامل Root)
         ItemListener sourceListener = { ItemEvent e ->
             boolean folderSelected = folderRadio.isSelected()
             folderChooserBtn.setEnabled(folderSelected)
@@ -294,17 +292,7 @@ class SimpleMapCrawler {
         openMapsRadio.addItemListener(sourceListener)
         selectedDescRadio.addItemListener(sourceListener)
         selectedSibRadio.addItemListener(sourceListener)
-        rootRadio.addItemListener(sourceListener)   // Root نیز دکمه پوشه را غیرفعال می‌کند
-        
-        int col = 0
-        gbc.gridx = col++; secondLine.add(folderRadio, gbc)
-        gbc.gridx = col++; secondLine.add(openMapsRadio, gbc)
-        gbc.gridx = col++; secondLine.add(selectedDescRadio, gbc)
-        gbc.gridx = col++; secondLine.add(selectedSibRadio, gbc)
-        gbc.gridx = col++; secondLine.add(rootRadio, gbc)   // اضافه در UI
-        gbc.gridx = col++; secondLine.add(folderChooserBtn, gbc)
-        gbc.gridx = col++; secondLine.add(folderLabel, gbc)
-        gbc.gridx = col++; secondLine.add(new JSeparator(SwingConstants.VERTICAL), gbc)
+        rootRadio.addItemListener(sourceListener)
         
         allScopeRadio = new JRadioButton("All", true)
         styleScopeRadio = new JRadioButton("Style")
@@ -319,16 +307,28 @@ class SimpleMapCrawler {
         styleScopeRadio.addActionListener({ styleField.setEnabled(styleScopeRadio.isSelected()) })
         allScopeRadio.addActionListener({ styleField.setEnabled(false); styleField.setText("") })
         
+        // چینش جدید
+        int col = 0
         gbc.gridx = col++; secondLine.add(allScopeRadio, gbc)
         gbc.gridx = col++; secondLine.add(styleScopeRadio, gbc)
         gbc.gridx = col++; gbc.weightx = 1.0; gbc.fill = GridBagConstraints.HORIZONTAL
         secondLine.add(styleField, gbc)
+        gbc.weightx = 0
+        
+        gbc.gridx = col++; secondLine.add(folderRadio, gbc)
+        gbc.gridx = col++; secondLine.add(openMapsRadio, gbc)
+        gbc.gridx = col++; secondLine.add(rootRadio, gbc)
+        gbc.gridx = col++; secondLine.add(selectedSibRadio, gbc)
+        gbc.gridx = col++; secondLine.add(selectedDescRadio, gbc)
+        gbc.gridx = col++; secondLine.add(folderChooserBtn, gbc)
+        gbc.gridx = col++; secondLine.add(folderLabel, gbc)
+        gbc.gridx = col++; secondLine.add(new JSeparator(SwingConstants.VERTICAL), gbc)
         
         JPanel topPanel = new JPanel(new GridLayout(2, 1, 0, 2))
         topPanel.add(firstLine)
         topPanel.add(secondLine)
         
-        // ========== بقیه پنل‌ها (بدون تغییر) ==========
+        // ========== بقیه پنل‌ها ==========
         breadcrumbPanel = new JPanel()
         breadcrumbPanel.setLayout(new BoxLayout(breadcrumbPanel, BoxLayout.LINE_AXIS))
         breadcrumbPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
@@ -534,101 +534,96 @@ class SimpleMapCrawler {
         return mainPanel
     }
     
-    // ========== رندرهای ستون (بدون تغییر) ==========
+    // ========== رندرهای ستون ==========
     class FontAwareRenderer extends DefaultTableCellRenderer {
-    private int columnIndex
-    FontAwareRenderer(int col) { columnIndex = col }
-    
-    // متد کمکی برای دریافت Node از ردیف جاری
-    private Node getNodeAtRow(JTable table, int row) {
-        int modelRow = table.convertRowIndexToModel(row)
-        Object value = table.getModel().getValueAt(modelRow, 2) // ستون Node (index 2)
-        if (value instanceof Object[] && ((Object[])value).length > 0) 
-            return ((Object[])value)[0] as Node
-        if (value instanceof Node) 
-            return value as Node
-        return null
-    }
-    
-    public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-        super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
-        Font f = null
-        if (columnIndex == 0) f = fontFileColumn
-        else if (columnIndex == 1) f = fontStyleColumn
-        if (f != null) setFont(f)
+        private int columnIndex
+        FontAwareRenderer(int col) { columnIndex = col }
         
-        // تنظیم تولتیپ روی ستون File و Style (اگر غیرفعال نباشد)
-        if (!disableTooltips) {
-            Node node = getNodeAtRow(table, row)
-            if (node != null) {
-                setToolTipText(node.plainText)   // متن کامل گره به عنوان تولتیپ
+        private Node getNodeAtRow(JTable table, int row) {
+            int modelRow = table.convertRowIndexToModel(row)
+            Object value = table.getModel().getValueAt(modelRow, 2)
+            if (value instanceof Object[] && ((Object[])value).length > 0) 
+                return ((Object[])value)[0] as Node
+            if (value instanceof Node) 
+                return value as Node
+            return null
+        }
+        
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
+            Font f = null
+            if (columnIndex == 0) f = fontFileColumn
+            else if (columnIndex == 1) f = fontStyleColumn
+            if (f != null) setFont(f)
+            
+            if (!disableTooltips) {
+                Node node = getNodeAtRow(table, row)
+                if (node != null) setToolTipText(node.plainText)
+                else setToolTipText(null)
             } else {
                 setToolTipText(null)
             }
-        } else {
-            setToolTipText(null)
+            return this
         }
-        return this
-    }
     }
     
     class FontAwareNodeRenderer extends JEditorPane implements TableCellRenderer {
-    FontAwareNodeRenderer() {
-        setEditable(false)
-        setContentType("text/html")
-        putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
-        setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0))
-        setMargin(new Insets(0, 0, 0, 0))
-        setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        FontAwareNodeRenderer() {
+            setEditable(false)
+            setContentType("text/html")
+            putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
+            setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0))
+            setMargin(new Insets(0, 0, 0, 0))
+            setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        }
+        
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+            Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
+            String displayText = node?.plainText ?: ""
+            if (!showFullNodeText) {
+                displayText = TextUtils.getShortText(displayText, 80, "\u2026")
+            }
+            
+            Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
+            setFont(useFont)
+            
+            String htmlText = escapeHtml(displayText)
+            if (!currentFilterText.isEmpty()) {
+                String pattern = Pattern.quote(currentFilterText)
+                htmlText = htmlText.replaceAll("(?i)(" + pattern + ")", "<span style='background-color: yellow;'>\$1</span>")
+            }
+            
+            String style = "font-family: " + useFont.getFamily() + "; font-size: " + useFont.getSize() + "pt; direction: rtl; text-align: right; margin: 0; padding: 0; line-height: normal;"
+            setText("<html><body style='" + style + "'>" + htmlText + "</body></html>")
+            
+            setToolTipText(null)
+            
+            Color borderColor = Color.GRAY
+            if (node?.mindMap?.file) {
+                String path = node.mindMap.file.absolutePath
+                if (PATH_COLORS.containsKey(path)) borderColor = PATH_COLORS.get(path)
+            }
+            setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 5, 0, 0, borderColor),
+                BorderFactory.createEmptyBorder(2, 8, 2, 8)
+            ))
+            
+            if (isSelected) {
+                setBackground(table.getSelectionBackground())
+                setForeground(table.getSelectionForeground())
+            } else {
+                setBackground(table.getBackground())
+                setForeground(table.getForeground())
+            }
+            
+            setSize(table.getColumnModel().getColumn(col).getWidth(), Short.MAX_VALUE)
+            int prefHeight = getPreferredSize().height + 4
+            if (table.getRowHeight(row) != prefHeight) table.setRowHeight(row, prefHeight)
+            return this
+        }
     }
     
-    public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-        Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-        String displayText = node?.plainText ?: ""
-        if (!showFullNodeText) {
-            displayText = TextUtils.getShortText(displayText, 80, "\u2026")
-        }
-        
-        Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
-        setFont(useFont)
-        
-        String htmlText = escapeHtml(displayText)
-        if (!currentFilterText.isEmpty()) {
-            String pattern = Pattern.quote(currentFilterText)
-            htmlText = htmlText.replaceAll("(?i)(" + pattern + ")", "<span style='background-color: yellow;'>\$1</span>")
-        }
-        
-        String style = "font-family: " + useFont.getFamily() + "; font-size: " + useFont.getSize() + "pt; direction: rtl; text-align: right; margin: 0; padding: 0; line-height: normal;"
-        setText("<html><body style='" + style + "'>" + htmlText + "</body></html>")
-        
-        // === بدون تولتیپ ===
-        setToolTipText(null)   // <-- این خط باعث می‌شود روی ستون Node هیچ تولتیپی نمایش ندهد
-        
-        Color borderColor = Color.GRAY
-        if (node?.mindMap?.file) {
-            String path = node.mindMap.file.absolutePath
-            if (PATH_COLORS.containsKey(path)) borderColor = PATH_COLORS.get(path)
-        }
-        setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(0, 5, 0, 0, borderColor),
-            BorderFactory.createEmptyBorder(2, 8, 2, 8)
-        ))
-        
-        if (isSelected) {
-            setBackground(table.getSelectionBackground())
-            setForeground(table.getSelectionForeground())
-        } else {
-            setBackground(table.getBackground())
-            setForeground(table.getForeground())
-        }
-        
-        setSize(table.getColumnModel().getColumn(col).getWidth(), Short.MAX_VALUE)
-        int prefHeight = getPreferredSize().height + 4
-        if (table.getRowHeight(row) != prefHeight) table.setRowHeight(row, prefHeight)
-        return this
-    }
-    }    
-    // ========== دیالوگ تنظیمات (بدون تغییر) ==========
+    // ========== دیالوگ تنظیمات (با اضافه شدن فونت برادکرامپ) ==========
     private void showSettingsDialog() {
         if (settingsDialog != null && settingsDialog.isVisible()) {
             settingsDialog.toFront()
@@ -658,6 +653,8 @@ class SimpleMapCrawler {
         settingsDialog.add(createFontSettingPanel("Font for Details:", fontPreviewDetails, { f -> fontPreviewDetails = f }), gbc)
         gbc.gridy = 5
         settingsDialog.add(createFontSettingPanel("Font for Note:", fontPreviewNote, { f -> fontPreviewNote = f }), gbc)
+        gbc.gridy = 6
+        settingsDialog.add(createFontSettingPanel("Font for Breadcrumb (path):", fontBreadcrumb, { f -> fontBreadcrumb = f }), gbc)
         
         JCheckBox disableTooltipCheck = new JCheckBox("Disable tooltips on results", disableTooltips)
         JCheckBox hideFileColCheck = new JCheckBox("Hide 'File' column", hideFileColumn)
@@ -668,16 +665,16 @@ class SimpleMapCrawler {
         JCheckBox showFullNodeCheck = new JCheckBox("Show full node text (no truncation)", showFullNodeText)
         JCheckBox hidePreviewPanelCheck = new JCheckBox("Hide node preview panel (left panel)", hidePreviewPanel)
         
-        gbc.gridy = 6; settingsDialog.add(disableTooltipCheck, gbc)
-        gbc.gridy = 7; settingsDialog.add(hideFileColCheck, gbc)
-        gbc.gridy = 8; settingsDialog.add(hideStyleColCheck, gbc)
-        gbc.gridy = 9; settingsDialog.add(hideNodeColCheck, gbc)
-        gbc.gridy = 10; settingsDialog.add(hideDetailsCheck, gbc)
-        gbc.gridy = 11; settingsDialog.add(hideNoteCheck, gbc)
-        gbc.gridy = 12; settingsDialog.add(showFullNodeCheck, gbc)
-        gbc.gridy = 13; settingsDialog.add(hidePreviewPanelCheck, gbc)
+        gbc.gridy = 7; settingsDialog.add(disableTooltipCheck, gbc)
+        gbc.gridy = 8; settingsDialog.add(hideFileColCheck, gbc)
+        gbc.gridy = 9; settingsDialog.add(hideStyleColCheck, gbc)
+        gbc.gridy = 10; settingsDialog.add(hideNodeColCheck, gbc)
+        gbc.gridy = 11; settingsDialog.add(hideDetailsCheck, gbc)
+        gbc.gridy = 12; settingsDialog.add(hideNoteCheck, gbc)
+        gbc.gridy = 13; settingsDialog.add(showFullNodeCheck, gbc)
+        gbc.gridy = 14; settingsDialog.add(hidePreviewPanelCheck, gbc)
         
-        gbc.gridy = 14
+        gbc.gridy = 15
         gbc.gridwidth = 1
         JButton saveBtn = new JButton("Save")
         JButton cancelBtn = new JButton("Cancel")
@@ -699,6 +696,11 @@ class SimpleMapCrawler {
             saveFontSettings()
             applySettings()
             applyFontsToComponents()
+            // به‌روزرسانی برادکرامپ اگر گره‌ای انتخاب شده باشد
+            int selectedRow = resultsTable.getSelectedRow()
+            if (selectedRow != -1) {
+                showNodeDetails(selectedRow)
+            }
             settingsDialog.dispose()
         })
         cancelBtn.addActionListener({ e -> settingsDialog.dispose() })
@@ -763,6 +765,7 @@ class SimpleMapCrawler {
         saveFontProp(rc, "mapcrawler.fontPreviewCore", fontPreviewCore)
         saveFontProp(rc, "mapcrawler.fontPreviewDetails", fontPreviewDetails)
         saveFontProp(rc, "mapcrawler.fontPreviewNote", fontPreviewNote)
+        saveFontProp(rc, "mapcrawler.fontBreadcrumb", fontBreadcrumb)
     }
     
     private void saveFontProp(ResourceController rc, String key, Font f) {
@@ -781,6 +784,7 @@ class SimpleMapCrawler {
         fontPreviewCore = loadFontProp(rc, "mapcrawler.fontPreviewCore")
         fontPreviewDetails = loadFontProp(rc, "mapcrawler.fontPreviewDetails")
         fontPreviewNote = loadFontProp(rc, "mapcrawler.fontPreviewNote")
+        fontBreadcrumb = loadFontProp(rc, "mapcrawler.fontBreadcrumb")
     }
     
     private Font loadFontProp(ResourceController rc, String key) {
@@ -806,6 +810,21 @@ class SimpleMapCrawler {
         }
         if (previewNote != null && fontPreviewNote != null) {
             previewNote.setFont(fontPreviewNote)
+        }
+        // اعمال فونت برادکرامپ به دکمه‌های موجود
+        if (breadcrumbPanel != null && fontBreadcrumb != null) {
+            for (Component comp : breadcrumbPanel.getComponents()) {
+                if (comp instanceof JPanel) {
+                    JPanel panel = (JPanel) comp
+                    for (Component inner : panel.getComponents()) {
+                        if (inner instanceof JRadioButton) {
+                            inner.setFont(fontBreadcrumb)
+                        }
+                    }
+                }
+            }
+            breadcrumbPanel.revalidate()
+            breadcrumbPanel.repaint()
         }
     }
     
@@ -1038,7 +1057,12 @@ class SimpleMapCrawler {
             String shortText = TextUtils.getShortText(n.getPlainText(), 20, "\u2026")
             JRadioButton btn = new JRadioButton(shortText)
             btn.setToolTipText(n.getPlainText())
-            btn.setFont(btn.getFont().deriveFont(Font.PLAIN))
+            // اعمال فونت برادکرامپ
+            if (fontBreadcrumb != null) {
+                btn.setFont(fontBreadcrumb)
+            } else {
+                btn.setFont(btn.getFont().deriveFont(Font.PLAIN))
+            }
             btn.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6))
             btn.setOpaque(false)
             btn.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
@@ -1127,7 +1151,6 @@ class SimpleMapCrawler {
         currentFilterText = ""
         rowSorter.setRowFilter(null)
         
-        // تعیین منبع جستجو
         if (folderRadio.isSelected()) {
             File dir = new File(baseDir)
             if (!dir.exists() || !dir.isDirectory()) {
