@@ -2819,6 +2819,12 @@ class SimpleMapCrawler {
         filterPanel.add(filterResultLabel)
         
         // ========== Status Bar ==========
+
+        
+        filterPanel.add(new JLabel("Filter:")); filterPanel.add(filterField); filterPanel.add(upButton); filterPanel.add(downButton)
+        filterResultLabel = new JLabel("0 results")
+        filterResultLabel.setFont(filterResultLabel.getFont().deriveFont(Font.BOLD))
+        filterPanel.add(filterResultLabel)
         JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.RIGHT))
         statusBar.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
         JButton closeBtn = new JButton("✖")
@@ -3199,10 +3205,471 @@ class SimpleMapCrawler {
         }
     }
 
-    // ========== Cell Renderers ==========
-    // (Renderers remain unchanged - they are already in English)
+    class FontAwareRenderer extends DefaultTableCellRenderer {
+        private int columnIndex
+        FontAwareRenderer(int col) { columnIndex = col }
+        private Node getNodeAtRow(JTable table, int row) {
+            int modelRow = table.convertRowIndexToModel(row)
+            Object value = table.getModel().getValueAt(modelRow, 9)
+            if (value instanceof Object[] && ((Object[])value).length > 0) return ((Object[])value)[0] as Node
+            if (value instanceof Node) return value as Node
+            return null
+        }
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+            Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
+            String originalText = node?.plainText ?: ""
+            String displayText = originalText
+            if (trimMode && !singleLineMode && !fullMode) {
+                if (displayText.length() > trimLength)
+                    displayText = TextUtils.getShortText(displayText, trimLength, "\u2026")
+            } else if (singleLineMode) {
+                if (displayText.length() > trimLength)
+                    displayText = TextUtils.getShortText(displayText, trimLength, "\u2026")
+                TableColumn tableCol = table.getColumnModel().getColumn(9)
+                int colWidth = tableCol.getWidth()
+                int padding = 21
+                int availableWidth = colWidth - padding
+                if (availableWidth > 0) {
+                    Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
+                    FontMetrics fm = getFontMetrics(useFont)
+                    String ellipsis = "\u2026"
+                    int ellipsisWidth = fm.stringWidth(ellipsis)
+                    if (fm.stringWidth(displayText) > availableWidth) {
+                        for (int i = displayText.length(); i > 0; i--) {
+                            String sub = displayText.substring(0, i)
+                            if (fm.stringWidth(sub) + ellipsisWidth <= availableWidth) {
+                                displayText = sub + ellipsis
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+            // ====== هایلایت چند کلمه‌ای ======
+            String highlightWord = null
+            if (currentFilterText != null && !currentFilterText.isEmpty())
+                highlightWord = currentFilterText
+            else if (lastSearchKeyword != null && !lastSearchKeyword.isEmpty())
+                highlightWord = lastSearchKeyword
+            if (highlightWord != null && !highlightWord.isEmpty()) {
+                List<String> wordsToHighlight = []
+                if (highlightWord.contains("|")) {
+                    wordsToHighlight = highlightWord.split("\\|").collect { it.trim() }.findAll { !it.isEmpty() }
+                } else {
+                    wordsToHighlight = [highlightWord]
+                }
+                for (String word : wordsToHighlight) {
+                    if (word.isEmpty()) continue
+                    String patternStr = Pattern.quote(word)
+                    try {
+                        int flags = matchCase ? 0 : Pattern.CASE_INSENSITIVE
+                        Pattern p = Pattern.compile("($patternStr)", flags)
+                        Matcher m = p.matcher(displayText)
+                        StringBuffer sb = new StringBuffer()
+                        while (m.find())
+                            m.appendReplacement(sb, "<span style='background-color: yellow;'>\$1</span>")
+                        m.appendTail(sb)
+                        displayText = sb.toString()
+                    } catch (Exception e) {}
+                }
+            }
+            // ===================================
+            if (singleLineMode) {
+                JLabel label = new JLabel()
+                label.setOpaque(true)
+                Color nodeBg = getNodeBackgroundColor(node)
+                Color nodeFg = getNodeForegroundColor(node)
+                if (isSelected) {
+                    label.setBackground(table.getSelectionBackground())
+                    label.setForeground(table.getSelectionForeground())
+                } else {
+                    if (nodeBg != null) {
+                        label.setBackground(nodeBg)
+                    } else {
+                        label.setBackground(table.getBackground())
+                    }
+                    if (nodeFg != null) {
+                        label.setForeground(nodeFg)
+                    } else {
+                        label.setForeground(table.getForeground())
+                    }
+                }
+                Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
+                label.setFont(useFont)
+                label.setText(displayText)
+                label.setHorizontalAlignment(SwingConstants.LEFT)
+                label.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+                label.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 5, 0, 0, getBorderColorForNode(node)),
+                    BorderFactory.createEmptyBorder(2, 8, 2, 8)
+                ))
+                return label
+            } else {
+                String htmlText = displayText.contains("<span") ? displayText : escapeHtml(displayText)
+                Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
+                setFont(useFont)
+                String styleAttr = "font-family: " + useFont.getFamily() + "; font-size: " + useFont.getSize() + "pt; direction: rtl; text-align: right; margin: 0; padding: 0; line-height: normal;"
+                if (!fullMode) styleAttr += " white-space: normal;" else styleAttr += " white-space: normal;"
+                setText("<html><body style='" + styleAttr + "'>" + htmlText + "</body></html>")
+                setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 5, 0, 0, getBorderColorForNode(node)),
+                    BorderFactory.createEmptyBorder(2, 8, 2, 8)
+                ))
+                Color nodeBg = getNodeBackgroundColor(node)
+                Color nodeFg = getNodeForegroundColor(node)
+                if (isSelected) {
+                    setBackground(table.getSelectionBackground())
+                    setForeground(table.getSelectionForeground())
+                } else {
+                    if (nodeBg != null) {
+                        setBackground(nodeBg)
+                    } else {
+                        setBackground(table.getBackground())
+                    }
+                    if (nodeFg != null) {
+                        setForeground(nodeFg)
+                    } else {
+                        setForeground(table.getForeground())
+                    }
+                }
+                return this
+            }
+        }
+    }
 
-    // ========== Settings Dialog ==========
+    class FontAwareDateRenderer extends DefaultTableCellRenderer {
+        FontAwareDateRenderer() { setHorizontalAlignment(SwingConstants.CENTER) }
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+            super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, col)
+            Font f = (col == 3) ? fontDateColumn : fontDateCreatedColumn
+            if (f != null) setFont(f)
+            setHorizontalAlignment(SwingConstants.CENTER)
+            setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+            return this
+        }
+    }
+
+    class FontAwarePathRenderer extends JTextArea implements TableCellRenderer {
+        FontAwarePathRenderer() {
+            setOpaque(true)
+            setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
+            setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+            setLineWrap(true)
+            setWrapStyleWord(true)
+        }
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+            String originalText = (value != null) ? value.toString() : ""
+            String displayText = originalText
+            if (!fullMode) {
+                int columnWidth = table.getColumnModel().getColumn(col).getWidth()
+                String flatText = originalText.replace('\n', ' ')
+                FontMetrics fm = getFontMetrics(getFont())
+                int textWidth = fm.stringWidth(flatText)
+                if (textWidth + 10 > columnWidth) {
+                    String ellipsis = "\u2026"
+                    int ellipsisWidth = fm.stringWidth(ellipsis)
+                    int availableWidth = columnWidth - 10 - ellipsisWidth
+                    if (availableWidth > 0) {
+                        StringBuilder sb = new StringBuilder()
+                        for (int i = 0; i < flatText.length(); i++) {
+                            sb.append(flatText.charAt(i))
+                            if (fm.stringWidth(sb.toString()) > availableWidth) {
+                                sb.deleteCharAt(sb.length() - 1)
+                                break
+                            }
+                        }
+                        displayText = sb.toString() + ellipsis
+                    } else {
+                        displayText = ellipsis
+                    }
+                }
+            }
+            setText(displayText)
+            Font useFont = (fontPathColumn != null) ? fontPathColumn : new Font("Segoe UI", Font.PLAIN, 14)
+            setFont(useFont)
+            setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+            setForeground(table.getForeground())
+            setBackground(isSelected ? table.getSelectionBackground() : table.getBackground())
+            if (!disableTooltips && !originalText.equals(displayText)) {
+                setToolTipText(originalText)
+            } else {
+                setToolTipText(null)
+            }
+            int colWidth = table.getColumnModel().getColumn(col).getWidth()
+            setSize(colWidth, Short.MAX_VALUE)
+            return this
+        }
+    }
+
+    class FontAwareIconsRenderer extends JPanel implements TableCellRenderer {
+        FontAwareIconsRenderer() {
+            setLayout(new FlowLayout(FlowLayout.LEFT, 2, 2))
+            setOpaque(true)
+        }
+        private Node getNodeFromTable(JTable table, int row) {
+            int modelRow = table.convertRowIndexToModel(row)
+            Object value = table.getModel().getValueAt(modelRow, 9)
+            if (value instanceof Object[] && ((Object[])value).length > 0) return ((Object[])value)[0] as Node
+            if (value instanceof Node) return value as Node
+            return null
+        }
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+            removeAll()
+            Node node = getNodeFromTable(table, row)
+            if (node == null) {
+                setBackground(isSelected ? table.getSelectionBackground() : table.getBackground())
+                return this
+            }
+            StringBuilder fullTooltip = new StringBuilder()
+            NodeModel nodeModel = getNodeModel(node)
+            def icons = iconController().getIcons(nodeModel, StyleOption.FOR_UNSELECTED_NODE)
+            icons.each { namedIcon ->
+                if (namedIcon.getIcon() != null) {
+                    JLabel label = new JLabel(namedIcon.getIcon())
+                    label.setToolTipText(namedIcon.getName())
+                    add(label)
+                    if (fullTooltip.length() > 0) fullTooltip.append(", ")
+                    fullTooltip.append(namedIcon.getName())
+                }
+            }
+            if (fullTooltip.length() > 0) setToolTipText(fullTooltip.toString())
+            else setToolTipText(null)
+            if (isSelected) {
+                setBackground(table.getSelectionBackground())
+                setForeground(table.getSelectionForeground())
+            } else {
+                setBackground(table.getBackground())
+                setForeground(table.getForeground())
+            }
+            setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+            return this
+        }
+    }
+
+    class FontAwareTagsRenderer extends JPanel implements TableCellRenderer {
+        FontAwareTagsRenderer() {
+            setLayout(new FlowLayout(FlowLayout.LEFT, 2, 2))
+            setOpaque(true)
+        }
+        private Node getNodeFromTable(JTable table, int row) {
+            int modelRow = table.convertRowIndexToModel(row)
+            Object value = table.getModel().getValueAt(modelRow, 9)
+            if (value instanceof Object[] && ((Object[])value).length > 0) return ((Object[])value)[0] as Node
+            if (value instanceof Node) return value as Node
+            return null
+        }
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+            removeAll()
+            Node node = getNodeFromTable(table, row)
+            if (node == null) {
+                setBackground(isSelected ? table.getSelectionBackground() : table.getBackground())
+                return this
+            }
+            List<String> tagNames = new ArrayList<>()
+            NodeModel nodeModel = getNodeModel(node)
+            def tags = iconController().getTagIcons(nodeModel)
+            def sortedTags = tags.sort { a, b ->
+                String nameA = getNameFromTagIcon(a)
+                String nameB = getNameFromTagIcon(b)
+                nameA.compareToIgnoreCase(nameB)
+            }
+            sortedTags.each { tag ->
+                if (tag instanceof Icon) {
+                    JLabel label = new JLabel(tag)
+                    String tagName = getNameFromTagIcon(tag)
+                    label.setToolTipText(tagName)
+                    add(label)
+                    tagNames.add(tagName)
+                } else if (tag instanceof JLabel) {
+                    String tagName = getNameFromTagIcon(tag)
+                    tag.setToolTipText(tagName)
+                    add(tag)
+                    tagNames.add(tagName)
+                } else {
+                    String txt = tag.toString()
+                    String tagName = getNameFromTagIcon(tag)
+                    JLabel label = new JLabel(txt)
+                    label.setToolTipText(tagName)
+                    add(label)
+                    tagNames.add(tagName)
+                }
+            }
+            if (!tagNames.isEmpty()) {
+                String tooltipText = "<html>" + tagNames.join("<br>") + "</html>"
+                setToolTipText(tooltipText)
+            } else {
+                setToolTipText(null)
+            }
+            if (isSelected) {
+                setBackground(table.getSelectionBackground())
+                setForeground(table.getSelectionForeground())
+            } else {
+                setBackground(table.getBackground())
+                setForeground(table.getForeground())
+            }
+            setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+            return this
+        }
+        private String getNameFromTagIcon(Object tagIcon) {
+            if (tagIcon == null) return ""
+            if (tagIcon instanceof NamedIcon) {
+                return tagIcon.getName() ?: tagIcon.toString()
+            }
+            if (tagIcon instanceof JLabel) {
+                return tagIcon.getToolTipText() ?: tagIcon.getText() ?: ""
+            }
+            String className = tagIcon.getClass().getName()
+            if (className.contains("TagIcon")) {
+                try {
+                    Field field = tagIcon.getClass().getDeclaredField("tag")
+                    field.setAccessible(true)
+                    Object tagValue = field.get(tagIcon)
+                    if (tagValue != null) {
+                        String tagStr = tagValue.toString()
+                        if (tagStr.contains("=")) {
+                            int eqIdx = tagStr.lastIndexOf("=")
+                            if (eqIdx != -1) tagStr = tagStr.substring(eqIdx + 1)
+                        }
+                        if (tagStr.contains(",")) tagStr = tagStr.split(",")[0]
+                        return tagStr.trim()
+                    }
+                } catch (Exception ignored) {}
+                String str = tagIcon.toString()
+                def matcher = (str =~ /tag=(.*?)(?:,|$)/)
+                if (matcher.find()) return matcher.group(1).trim()
+                return str
+            }
+            return tagIcon.toString()
+        }
+    }
+
+    class FontAwareHtmlRenderer extends JLabel implements TableCellRenderer {
+        private int columnIndex
+        FontAwareHtmlRenderer(int col) {
+            this.columnIndex = col
+            setOpaque(true)
+            setVerticalAlignment(SwingConstants.TOP)
+            setHorizontalAlignment(SwingConstants.RIGHT)
+            setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        }
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+            Node node = null
+            int modelRow = table.convertRowIndexToModel(row)
+            Object nodeValue = table.getModel().getValueAt(modelRow, 9)
+            if (nodeValue instanceof Object[] && ((Object[])nodeValue).length > 0) {
+                node = ((Object[])nodeValue)[0] as Node
+            } else if (nodeValue instanceof Node) {
+                node = nodeValue as Node
+            }
+            Font useFont = (columnIndex == 7) ? fontDetailsColumn : fontNoteColumn
+            if (useFont == null) useFont = table.getFont()
+            int colWidth = table.getColumnModel().getColumn(col).getWidth()
+            String rawText = (value != null) ? value.toString() : ""
+            if (columnIndex == 7 && node?.getDetails()?.getHtml()) {
+                rawText = node.getDetails().getHtml()
+            } else if (columnIndex == 8 && node?.getNote()?.getHtml()) {
+                rawText = node.getNote().getHtml()
+            }
+            String styledContent = getStyledCellContent(rawText, node, useFont, true, colWidth)
+            setText("<html>${styledContent}</html>")
+            setFont(useFont)
+            Color nodeBg = getNodeBackgroundColor(node)
+            setBackground(nodeBg ?: table.getBackground())
+            if (!singleLineMode || !rawText.trim().startsWith("<")) {
+                Color nodeFg = getNodeForegroundColor(node)
+                setForeground(nodeFg ?: table.getForeground())
+            }
+            Border originalBorder = BorderFactory.createEmptyBorder(2, 5, 2, 5)
+            if (isSelected) {
+                Border blueBorder = BorderFactory.createLineBorder(Color.BLUE, 2)
+                setBorder(BorderFactory.createCompoundBorder(blueBorder, originalBorder))
+            } else {
+                setBorder(originalBorder)
+            }
+            return this
+        }
+    }
+
+    class FontAwareNodeRenderer extends JLabel implements TableCellRenderer {
+        FontAwareNodeRenderer() {
+            setOpaque(true)
+            setVerticalAlignment(SwingConstants.TOP)
+            setHorizontalAlignment(SwingConstants.RIGHT)
+            setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        }
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+            Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
+            if (node == null) {
+                setText("")
+                return this
+            }
+            Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
+            int colWidth = table.getColumnModel().getColumn(9).getWidth()
+            String rawText = node.getHtmlText() ?: node.getPlainText()
+            
+            String content = rawText
+            boolean isHtml = rawText != null && rawText.trim().startsWith("<")
+            if (!isHtml) {
+                content = escapeHtml(rawText).replace("\n", "<br>")
+            }
+            
+            // ====== هایلایت چند کلمه‌ای ======
+            String highlightWord = (currentFilterText != null && !currentFilterText.isEmpty()) ? currentFilterText : lastSearchKeyword
+            if (highlightWord != null && !highlightWord.isEmpty()) {
+                List<String> wordsToHighlight = []
+                if (highlightWord.contains("|")) {
+                    wordsToHighlight = highlightWord.split("\\|").collect { it.trim() }.findAll { !it.isEmpty() }
+                } else {
+                    wordsToHighlight = [highlightWord]
+                }
+                for (String word : wordsToHighlight) {
+                    if (word.isEmpty()) continue
+                    String patternStr = Pattern.quote(word)
+                    try {
+                        int flags = matchCase ? 0 : Pattern.CASE_INSENSITIVE
+                        Pattern p = Pattern.compile("($patternStr)", flags)
+                        Matcher m = p.matcher(content)
+                        StringBuffer sb = new StringBuffer()
+                        while (m.find()) {
+                            m.appendReplacement(sb, "<span style='background-color: yellow;'>\$1</span>")
+                        }
+                        m.appendTail(sb)
+                        content = sb.toString()
+                    } catch (Exception e) {}
+                }
+            }
+            // ===================================
+            
+            Color fgColor = getNodeForegroundColor(node)
+            String colorStyle = (fgColor != null) ? "color: rgb(${fgColor.red}, ${fgColor.green}, ${fgColor.blue});" : ""
+            String family = useFont.getFamily()
+            int size = useFont.getSize()
+            String weight = useFont.isBold() ? "bold" : "normal"
+            String styleFlag = useFont.isItalic() ? "italic" : "normal"
+            String wrapperStyle = "font-family: ${family}; font-size: ${size}pt; font-weight: ${weight}; font-style: ${styleFlag}; ${colorStyle} margin:0; padding:0; direction: rtl; text-align: right;"
+            wrapperStyle += " white-space: normal;"
+            
+            setText("<html><div style=\"${wrapperStyle}\">${content}</div></html>")
+            setFont(useFont)
+            Color nodeBg = getNodeBackgroundColor(node)
+            setBackground(nodeBg ?: table.getBackground())
+            Color nodeFg = getNodeForegroundColor(node)
+            setForeground(nodeFg ?: table.getForeground())
+            Border leftColorBorder = BorderFactory.createMatteBorder(0, 5, 0, 0, getBorderColorForNode(node))
+            Border paddingBorder = BorderFactory.createEmptyBorder(2, 8, 2, 8)
+            Border originalBorder = BorderFactory.createCompoundBorder(leftColorBorder, paddingBorder)
+            if (isSelected) {
+                Border selectionBorder = BorderFactory.createLineBorder(Color.BLUE, 2)
+                setBorder(BorderFactory.createCompoundBorder(selectionBorder, originalBorder))
+            } else {
+                setBorder(originalBorder)
+            }
+            return this
+        }
+    }
+
     private void showSettingsDialog() {
         if (settingsDialog != null && settingsDialog.isVisible()) { settingsDialog.toFront(); return }
         settingsDialog = new JDialog(UITools.getCurrentFrame(), "Settings", true)
