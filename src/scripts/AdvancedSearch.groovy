@@ -247,6 +247,8 @@ import java.util.List
 
 // opaque background of the bars (see SearchPanel for the forbidden gray band)
 @Field Color barColor = new Color(0x50, 0x50, 0x50)
+// edit-mode button background while the mode is ON
+@Field Color editModeOnColor = new Color(0xc6, 0x8a, 0x00)
 
 @Field int panelBorderThickness = 1
 @Field int panelBorderOpacity = 150
@@ -345,7 +347,7 @@ import java.util.List
 @Field JScrollPane treeScrollPane
 @Field JLabel statusLabel
 @Field JButton wideButton
-@Field JButton editModeButton
+
 @Field JButton filterModeButton
 @Field DefaultCellEditor treeCellEditor
 @Field JTextField renameEditorField
