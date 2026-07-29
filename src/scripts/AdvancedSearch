@@ -1,21 +1,22 @@
 // @ExecutionModes({ON_SINGLE_NODE="/main_menu/aaa"})
-//
-// Modified by aaa1386 (2026)
-// https://github.com/aaa1386
-//
-// Based on the original MapCrawler script by bbarbosa.
-// Extensively modified and extended.
-//
-// Original repository:
-// https://github.com/i-plasm/freeplane-scripts
-//
-// Original script:
-// https://github.com/i-plasm/freeplane-scripts/blob/main/src/scripts/mapCrawler.groovy
-
-
 
 //package scripts
+
 /*
+ * Search-Filter-Associations
+ *
+ * Modified by aaa1386 (2026)
+ * https://github.com/aaa1386
+ *
+ * Based on the original MapCrawler script by bbarbosa.
+ * Extensively modified and extended.
+ *
+ * Original repository:
+ * https://github.com/i-plasm/freeplane-scripts
+ *
+ * Original script:
+ * https://github.com/i-plasm/freeplane-scripts/blob/main/src/scripts/mapCrawler.groovy
+ *
  * MapCrawler: Freeplane tool for searching across different map scopes
  * and quick inspection of results.
  *
@@ -38,8 +39,7 @@
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program. If not, see
- * <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
 import groovy.transform.Field
