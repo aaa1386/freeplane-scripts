@@ -1,30 +1,47 @@
-// @ExecutionModes({ON_SINGLE_NODE="/main_menu/Aaa/Search-Filter-Associations"})
-// Modified by aaa1386 2026 https://github.com/aaa1386
+// @ExecutionModes({ON_SINGLE_NODE="/main_menu/aaa"})
+//
+// Modified by aaa1386 (2026)
+// https://github.com/aaa1386
+//
+// Based on the original MapCrawler script by bbarbosa.
+// Extensively modified and extended.
+//
+// Original repository:
+// https://github.com/i-plasm/freeplane-scripts
+//
+// Original script:
+// https://github.com/i-plasm/freeplane-scripts/blob/main/src/scripts/mapCrawler.groovy
 
+
+
+//package scripts
 /*
- * Info & Discussion: https://github.com/freeplane/freeplane/discussions/2344
+ * MapCrawler: Freeplane tool for searching across different map scopes
+ * and quick inspection of results.
+ *
+ * Info & Discussion:
+ * https://github.com/freeplane/freeplane/discussions/2344
  *
  * Last Update: 2025-03-17
  *
- * ---------
- *
- * MapCrawler: Freeplane tool for searching across different map scopes, and quick inspection of results
- *
  * Copyright (C) 2025 bbarbosa
+ * Copyright (C) 2026 aaa1386
  *
- * This program is free software: you can redistribute it and/or modify it under the terms of the
- * GNU General Public License as published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
- * even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along with this program. If
- * not, see <https://www.gnu.org/licenses/>.
- *
- *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see
+ * <https://www.gnu.org/licenses/>.
  */
+
 import groovy.transform.Field
 import java.awt.*
 import org.freeplane.features.map.clipboard.MapClipboardController
@@ -84,7 +101,22 @@ if (mapCrawler == null) {
 mapCrawler.toggle()
 
 class SimpleMapCrawler {
-    // ========== اضافه شده برای بریدکرامپ شناور و نظرسنجی انتخاب ==========
+    // ========== اضافه شده برای بریدکرامپ شناور و نظرسنجی انتخاب =
+    // ========== برای Drag & Drop تگ ==========
+    // ========== برای Drag & Drop تگ ==========
+   
+    private JLabel dragGhostLabel = null
+    private JWindow dragGhostWindow = null
+    private boolean isDragging = false
+    // ========================================
+    private String draggedTag = null
+    private Point dragStartPoint = null
+    private int dragSourceRow = -1
+    // ========================================
+    private boolean mapNodeRowAdded = false
+    private int mapNodeRowIndex = -1
+    private JMenuItem tagMenuItem
+    private KeyStroke tagShortcut = KeyStroke.getKeyStroke(KeyEvent.VK_F8, 0)
     private Timer mapSelectionPollingTimer = null
     private Node lastPolledMapNode = null
     private boolean showOnlyBreadcrumbs = false
@@ -92,8 +124,1066 @@ class SimpleMapCrawler {
     private JList<Node> breadcrumbJList = null
     private DefaultListModel<Node> ancestorsModel = new DefaultListModel<>()
     private JCheckBox breadcrumbOnlyCheck = null
+    //
     // ================================================================
-
+    // ========== متدهای Drag & Drop تگ ==========
+    // ====== متد به‌روزرسانی بریدکرامپ بالای جدول ======
+    // ====== متد کمکی برای پیدا کردن گره زیر موس در پنل اصلی ======
+    private Node getNodeAtPointInMapView(Point screenPoint) {
+        try {
+            def mapView = Controller.getCurrentController().getMapViewManager().getMapViewComponent()
+            if (mapView == null) return null
+            
+            // تبدیل نقطه از صفحه به مختصات MapView
+            Point localPoint = new Point(screenPoint)
+            SwingUtilities.convertPointFromScreen(localPoint, mapView)
+            
+            // ====== روش 1: getNodeViewAt ======
+            def nodeView = mapView.getNodeViewAt(localPoint)
+            if (nodeView != null) {
+                return nodeView.getNode()
+            }
+            
+            // ====== روش 2: detectObject ======
+            def detected = mapView.detectObject(localPoint)
+            if (detected instanceof org.freeplane.view.swing.map.NodeView) {
+                return ((org.freeplane.view.swing.map.NodeView) detected).getNode()
+            }
+            
+            // ====== روش 3:直接从选中节点获取 ======
+            // اگر در پنل اصلی جایی کلیک شده که گره وجود نداره، از انتخاب شده استفاده کن
+            def selectedNodes = ScriptUtils.c().selecteds
+            if (selectedNodes && !selectedNodes.isEmpty()) {
+                return selectedNodes[0]
+            }
+            
+            return null
+        } catch (Exception ex) {
+            println "خطا در پیدا کردن گره: ${ex.message}"
+            return null
+        }
+    }
+    
+    void mouseReleased(MouseEvent e) {
+        if (isDragging && draggedTag != null) {
+            Node targetNode = null
+            int dropRow = resultsTable.rowAtPoint(e.getPoint())
+            
+            // ====== اول ببین روی کدوم ردیف جدول دراپ شده ======
+            if (dropRow != -1 && dropRow != dragSourceRow) {
+                targetNode = getNodeFromRow(dropRow)
+            }
+            
+            // ====== اگر روی جدول نبود، از پنل اصلی بگیر ======
+            if (targetNode == null) {
+                try {
+                    // ====== از خود event برای تشخیص گره زیر موس استفاده کن ======
+                    // این روش مطمئن‌تره چون از موقعیت واقعی موس استفاده میکنه
+                    def mapView = Controller.getCurrentController().getMapViewManager().getMapViewComponent()
+                    if (mapView != null) {
+                        // ====== نقطه موس رو به مختصات پنل تبدیل کن ======
+                        Point mousePoint = e.getLocationOnScreen()
+                        Point localPoint = new Point(mousePoint)
+                        SwingUtilities.convertPointFromScreen(localPoint, mapView)
+                        
+                        // ====== روش 1: getNodeViewAt (مثل جدول) ======
+                        def nodeView = mapView.getNodeViewAt(localPoint)
+                        if (nodeView != null) {
+                            targetNode = nodeView.getNode()
+                            println "✅ گره پیدا شد (getNodeViewAt): ${targetNode.getPlainText()}"
+                        }
+                        
+                        // ====== اگر پیدا نشد، روش 2: detectObject ======
+                        if (targetNode == null) {
+                            def detected = mapView.detectObject(localPoint)
+                            if (detected instanceof org.freeplane.view.swing.map.NodeView) {
+                                targetNode = ((org.freeplane.view.swing.map.NodeView) detected).getNode()
+                                println "✅ گره پیدا شد (detectObject): ${targetNode.getPlainText()}"
+                            }
+                        }
+                        
+                        // ====== اگر پیدا نشد، روش 3: بررسی همه گره‌ها ======
+                        if (targetNode == null) {
+                            // اگر هیچ گره‌ای زیر موس نبود، از گره‌های انتخاب‌شده استفاده نکن!
+                            // فقط به کاربر پیام بده
+                            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                                "⚠️ روی گره‌ای در نقشه اصلی دراپ کنید.", 
+                        "خطا", JOptionPane.WARNING_MESSAGE)
+                            cleanupDrag()
+                            return
+                        }
+                    }
+                } catch (Exception ex) {
+                    println "خطا در تشخیص گره پنل اصلی: ${ex.message}"
+                    ex.printStackTrace()
+                }
+            }
+            
+            // ====== اگر گره پیدا شد ======
+            if (targetNode != null) {
+                def oldSelection = ScriptUtils.c().selecteds
+                Node oldNode = (oldSelection && !oldSelection.isEmpty()) ? oldSelection[0] : null
+                
+                try {
+                    // ====== انتخاب گره مقصد در پنل اصلی ======
+                    ScriptUtils.c().select(targetNode)
+                    
+                    // ====== اضافه کردن تگ ======
+                    try {
+                        targetNode.tags.add(draggedTag)
+                    } catch (Exception ex1) {
+                        try {
+                            def controller = org.freeplane.features.tag.TagController.getController()
+                            if (controller != null) {
+                                controller.addTag(targetNode.getDelegate(), draggedTag)
+                            } else {
+                                targetNode.tags.add(draggedTag)
+                            }
+                        } catch (Exception ex2) {
+                            targetNode.tags.add(draggedTag)
+                        }
+                    }
+                    
+                    // ====== برگرداندن انتخاب قبلی ======
+                    if (oldNode != null) {
+                        ScriptUtils.c().select(oldNode)
+                    }
+                    
+                    // ====== به‌روزرسانی جدول ======
+                    if (dropRow != -1 && dropRow != dragSourceRow) {
+                        int modelRow = resultsTable.convertRowIndexToModel(dropRow)
+                        String tagsString = getSortedTagsString(targetNode)
+                        tableModel.setValueAt(tagsString, modelRow, 6)
+                        resultsTable.setRowSelectionInterval(dropRow, dropRow)
+                        showNodeDetails(dropRow)
+                        updateTableBreadcrumb(targetNode)
+                    } else {
+                        if (dragSourceRow != -1) {
+                            int modelRow = resultsTable.convertRowIndexToModel(dragSourceRow)
+                            Node sourceNode = getNodeFromRow(dragSourceRow)
+                            if (sourceNode != null) {
+                                String tagsString = getSortedTagsString(sourceNode)
+                                tableModel.setValueAt(tagsString, modelRow, 6)
+                            }
+                        }
+                        updateTableBreadcrumb(targetNode)
+                        int selectedRow = resultsTable.getSelectedRow()
+                        if (selectedRow != -1) {
+                            showNodeDetails(selectedRow)
+                        }
+                    }
+                    
+                    
+                    
+                } catch (Exception ex) {
+                    if (oldNode != null) {
+                        ScriptUtils.c().select(oldNode)
+                    }
+                    JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                        "❌ خطا: ${ex.message}", 
+                        "خطا", JOptionPane.ERROR_MESSAGE)
+                    ex.printStackTrace()
+                }
+            }
+            
+            cleanupDrag()
+        }
+    }
+    private void updateTableBreadcrumb(Node node) {
+        if (node == null) {
+            breadcrumbPanel.removeAll()
+            breadcrumbPanel.revalidate()
+            breadcrumbPanel.repaint()
+            return
+        }
+        
+        breadcrumbPanel.removeAll()
+        try {
+            def fullPath = node.getPathToRoot()
+            if (fullPath && !fullPath[0].isRoot()) {
+                fullPath = fullPath.reverse()
+            }
+            def displayPath = fullPath.size() > 1 ? fullPath[0..-2] : []
+            
+            // ====== اگر مسیر خالی است (گره روت) ======
+            if (displayPath.isEmpty()) {
+                JPanel tempPanel = new JPanel()
+                tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
+                tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+                
+                JLabel rootLabel = new JLabel("📁 Root")
+                if (fontBreadcrumb != null) {
+                    rootLabel.setFont(fontBreadcrumb.deriveFont(Font.BOLD, fontBreadcrumb.getSize() + 2))
+                } else {
+                    rootLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
+                }
+                rootLabel.setForeground(new Color(0, 100, 200))
+                rootLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
+                tempPanel.add(rootLabel)
+                
+                breadcrumbPanel.add(tempPanel)
+                breadcrumbPanel.revalidate()
+                breadcrumbPanel.repaint()
+                breadcrumbPanel.setVisible(true)
+                return
+            }
+            
+            if (useVisibleRootOnly) {
+                def viewRoot = getActiveViewRoot()
+                if (viewRoot != null && node.mindMap == viewRoot.mindMap) {
+                    int idx = fullPath.indexOf(viewRoot)
+                    if (idx != -1) {
+                        if (idx <= displayPath.size()) {
+                            displayPath = displayPath[idx..-1]
+                        } else {
+                            displayPath = []
+                        }
+                    }
+                }
+            }
+            
+            if (displayPath.isEmpty()) {
+                JPanel tempPanel = new JPanel()
+                tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
+                tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+                
+                JLabel rootLabel = new JLabel("📁 Root")
+                if (fontBreadcrumb != null) {
+                    rootLabel.setFont(fontBreadcrumb.deriveFont(Font.BOLD, fontBreadcrumb.getSize() + 2))
+                } else {
+                    rootLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
+                }
+                rootLabel.setForeground(new Color(0, 100, 200))
+                rootLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
+                tempPanel.add(rootLabel)
+                
+                breadcrumbPanel.add(tempPanel)
+                breadcrumbPanel.revalidate()
+                breadcrumbPanel.repaint()
+                breadcrumbPanel.setVisible(true)
+                return
+            }
+            
+            // ====== نمایش بریدکرامپ عادی ======
+            int maxNodes = 5
+            int start = Math.max(0, displayPath.size() - maxNodes)
+            JPanel tempPanel = new JPanel()
+            tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
+            tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+            
+            if (start > 0) {
+                JLabel ellipsisLabel = new JLabel(" ... ")
+                ellipsisLabel.setFont(ellipsisLabel.getFont().deriveFont(Font.BOLD))
+                tempPanel.add(ellipsisLabel)
+            }
+            
+            ButtonGroup bg = new ButtonGroup()
+            for (int i = start; i < displayPath.size(); i++) {
+                Node n = displayPath.get(i)
+                String nodeText = n.getPlainText()
+                String shortText = nodeText
+                if (ancestorTrimLength > 0 && nodeText.length() > ancestorTrimLength) {
+                    shortText = TextUtils.getShortText(nodeText, ancestorTrimLength, "\u2026")
+                }
+                JRadioButton btn = new JRadioButton(shortText)
+                btn.setToolTipText(nodeText)
+                if (fontBreadcrumb != null) btn.setFont(fontBreadcrumb)
+                else btn.setFont(btn.getFont().deriveFont(Font.PLAIN))
+                
+                Color bgColor = getNodeBackgroundColor(n)
+                if (bgColor != null) {
+                    btn.setBackground(bgColor)
+                    btn.setForeground(getForegroundForBackground(bgColor))
+                    btn.setOpaque(true)
+                    btn.setContentAreaFilled(true)
+                } else {
+                    btn.setOpaque(false)
+                    btn.setForeground(UIManager.getColor("Label.foreground"))
+                }
+                Color borderColor = getBorderColorForNode(n)
+                Border leftBorder = BorderFactory.createMatteBorder(0, 5, 0, 0, borderColor)
+                Border padding = BorderFactory.createEmptyBorder(2, 6, 2, 6)
+                btn.setBorder(BorderFactory.createCompoundBorder(leftBorder, padding))
+                btn.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+                btn.setHorizontalAlignment(SwingConstants.RIGHT)
+                btn.setHorizontalTextPosition(SwingConstants.LEFT)
+                btn.putClientProperty("node", n)
+                
+                final Node target = n
+                final JRadioButton currentBtn = btn
+                btn.addActionListener({ e ->
+                    for (Component comp : tempPanel.getComponents()) {
+                        if (comp instanceof JRadioButton) {
+                            ((JRadioButton)comp).setForeground(UIManager.getColor("Label.foreground"))
+                            ((JRadioButton)comp).setFont(((JRadioButton)comp).getFont().deriveFont(Font.PLAIN))
+                            Node oldNode = (Node) ((JRadioButton)comp).getClientProperty("node")
+                            if (oldNode != null) {
+                                Color oldBg = getNodeBackgroundColor(oldNode)
+                                if (oldBg != null) {
+                                    ((JRadioButton)comp).setBackground(oldBg)
+                                    ((JRadioButton)comp).setForeground(getForegroundForBackground(oldBg))
+                                } else {
+                                    ((JRadioButton)comp).setOpaque(false)
+                                }
+                            }
+                        }
+                    }
+                    currentBtn.setForeground(Color.BLUE)
+                    currentBtn.setFont(currentBtn.getFont().deriveFont(Font.BOLD))
+                    try {
+                        ScriptUtils.c().select(target)
+                        def mapFile = target.getMindMap().getFile()
+                        if (mapFile) {
+                            def uri = mapFile.toURI().toString() + "#" + target.getId()
+                            def link = new org.freeplane.core.util.Hyperlink(new URI(uri))
+                            org.freeplane.features.url.UrlManager.getController().loadHyperlink(link)
+                            SwingUtilities.invokeLater(new Runnable() {
+                                void run() {
+                                    if (resultsTable != null && resultsTable.isShowing()) {
+                                        resultsTable.requestFocusInWindow()
+                                    }
+                                }
+                            })
+                        }
+                    } catch (Exception ex) { ex.printStackTrace() }
+                })
+                tempPanel.add(btn)
+                bg.add(btn)
+            }
+            
+            for (Component comp : tempPanel.getComponents()) {
+                if (comp instanceof JRadioButton) {
+                    Node storedNode = (Node) ((JRadioButton)comp).getClientProperty("node")
+                    if (storedNode == node) {
+                        ((JRadioButton)comp).setSelected(true)
+                        ((JRadioButton)comp).setForeground(Color.BLUE)
+                        ((JRadioButton)comp).setFont(((JRadioButton)comp).getFont().deriveFont(Font.BOLD))
+                        break
+                    }
+                }
+            }
+            breadcrumbPanel.add(tempPanel, BorderLayout.CENTER)
+        } catch (Exception e) {
+            // در صورت خطا، حداقل یه چیزی نشون بده
+            JPanel tempPanel = new JPanel()
+            tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
+            tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+            
+            JLabel rootLabel = new JLabel("📁 " + node.getPlainText())
+            if (fontBreadcrumb != null) {
+                rootLabel.setFont(fontBreadcrumb)
+            } else {
+                rootLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12))
+            }
+            tempPanel.add(rootLabel)
+            breadcrumbPanel.add(tempPanel)
+            System.err.println("Breadcrumb error: ${e.message}")
+        }
+        breadcrumbPanel.revalidate()
+        breadcrumbPanel.repaint()
+        breadcrumbPanel.setVisible(true)
+    }
+    private void setupTagDragAndDrop() {
+        if (resultsTable == null) return
+        
+        resultsTable.addMouseListener(new MouseAdapter() {
+            void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+                    int row = resultsTable.rowAtPoint(e.getPoint())
+                    if (row != -1) {
+                        int col = resultsTable.columnAtPoint(e.getPoint())
+                        if (col == resultsTable.convertColumnIndexToView(6)) {
+                            int modelRow = resultsTable.convertRowIndexToModel(row)
+                            Object tagsValue = tableModel.getValueAt(modelRow, 6)
+                            
+                            if (tagsValue != null && tagsValue.toString().trim().length() > 0) {
+                                String tagName = extractTagName(tagsValue.toString())
+                                if (tagName != null && !isDragging) {
+                                    addTagToSelectedNodes(tagName)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            void mousePressed(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    int row = resultsTable.rowAtPoint(e.getPoint())
+                    if (row != -1) {
+                        int col = resultsTable.columnAtPoint(e.getPoint())
+                        if (col == resultsTable.convertColumnIndexToView(6)) {
+                            int modelRow = resultsTable.convertRowIndexToModel(row)
+                            Object tagsValue = tableModel.getValueAt(modelRow, 6)
+                            if (tagsValue != null && tagsValue.toString().trim().length() > 0) {
+                                String tagName = extractTagName(tagsValue.toString())
+                                if (tagName != null) {
+                                    draggedTag = tagName
+                                    dragSourceRow = row
+                                    dragStartPoint = e.getPoint()
+                                    resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            void mouseReleased(MouseEvent e) {
+                if (isDragging && draggedTag != null) {
+                    Node targetNode = null
+                    int dropRow = resultsTable.rowAtPoint(e.getPoint())
+                    
+                    if (dropRow != -1 && dropRow != dragSourceRow) {
+                        targetNode = getNodeFromRow(dropRow)
+                    }
+                    
+                    if (targetNode == null) {
+                        def selectedNodes = ScriptUtils.c().selecteds
+                        if (selectedNodes && !selectedNodes.isEmpty()) {
+                            targetNode = selectedNodes[0]
+                        }
+                    }
+                    
+                    if (targetNode != null) {
+                        def oldSelection = ScriptUtils.c().selecteds
+                        Node oldNode = (oldSelection && !oldSelection.isEmpty()) ? oldSelection[0] : null
+                        
+                        try {
+                            ScriptUtils.c().select(targetNode)
+                            
+                            // ====== روش درست برای اضافه کردن تگ ======
+                            try {
+                                // روش 1: استفاده از node.tags (ساده‌ترین)
+                                targetNode.tags.add(draggedTag)
+                            } catch (Exception ex1) {
+                                // روش 2: استفاده از TagController با import کامل
+                                try {
+                                    def controller = org.freeplane.features.tag.TagController.getController()
+                                    if (controller != null) {
+                                        controller.addTag(targetNode.getDelegate(), draggedTag)
+                                    } else {
+                                        targetNode.tags.add(draggedTag)
+                                    }
+                                } catch (Exception ex2) {
+                                    targetNode.tags.add(draggedTag)
+                                }
+                            }
+                            
+                            if (oldNode != null) {
+                                ScriptUtils.c().select(oldNode)
+                            }
+                            
+                            if (dropRow != -1 && dropRow != dragSourceRow) {
+                                int modelRow = resultsTable.convertRowIndexToModel(dropRow)
+                                String tagsString = getSortedTagsString(targetNode)
+                                tableModel.setValueAt(tagsString, modelRow, 6)
+                                resultsTable.setRowSelectionInterval(dropRow, dropRow)
+                                showNodeDetails(dropRow)
+                                updateTableBreadcrumb(targetNode)
+                            }
+                            
+                           
+                            
+                        } catch (Exception ex) {
+                            if (oldNode != null) {
+                                ScriptUtils.c().select(oldNode)
+                            }
+                            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                                "❌ خطا: ${ex.message}", 
+                                "خطا", JOptionPane.ERROR_MESSAGE)
+                            ex.printStackTrace()
+                        }
+                    } else {
+                        JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                            "⚠️ هیچ گره‌ای برای اضافه کردن تگ پیدا نشد.", 
+                            "خطا", JOptionPane.WARNING_MESSAGE)
+                    }
+                    
+                    cleanupDrag()
+                }
+            }
+        })
+        
+        resultsTable.addMouseMotionListener(new MouseMotionAdapter() {
+            void mouseDragged(MouseEvent e) {
+                if (draggedTag != null && dragStartPoint != null) {
+                    Point currentPoint = e.getPoint()
+                    int distance = (int) dragStartPoint.distance(currentPoint)
+                    
+                    if (distance > 10 && !isDragging) {
+                        startDrag(e)
+                    }
+                    
+                    if (isDragging) {
+                        updateDragGhost(e)
+                        
+                        def selectedNodes = ScriptUtils.c().selecteds
+                        if (selectedNodes && !selectedNodes.isEmpty()) {
+                            resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+                            if (dragSourceRow != -1) {
+                                resultsTable.setRowSelectionInterval(dragSourceRow, dragSourceRow)
+                            }
+                        } else {
+                            resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR))
+                        }
+                    }
+                }
+            }
+            
+            void mouseMoved(MouseEvent e) {
+                int col = resultsTable.columnAtPoint(e.getPoint())
+                if (col == resultsTable.convertColumnIndexToView(6)) {
+                    int row = resultsTable.rowAtPoint(e.getPoint())
+                    if (row != -1) {
+                        int modelRow = resultsTable.convertRowIndexToModel(row)
+                        Object tagsValue = tableModel.getValueAt(modelRow, 6)
+                        if (tagsValue != null && tagsValue.toString().trim().length() > 0) {
+                            resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+                            return
+                        }
+                    }
+                }
+                resultsTable.setCursor(Cursor.getDefaultCursor())
+            }
+        })
+    }
+    
+    private void addTagToSelectedNodes(String tagName) {
+        if (!tagName || tagName.isEmpty()) return
+        
+        def selectedNodes = ScriptUtils.c().selecteds
+        if (!selectedNodes || selectedNodes.isEmpty()) {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "⚠️ هیچ گره‌ای در نقشه اصلی انتخاب نشده است.", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        int count = 0
+        for (def targetNode in selectedNodes) {
+            try {
+                def controller = org.freeplane.features.tag.TagController.getController()
+                if (controller) {
+                    controller.addTag(targetNode.getDelegate(), tagName)
+                    count++
+                } else {
+                    targetNode.tags.add(tagName)
+                    count++
+                }
+            } catch (Exception ex) {
+                try {
+                    targetNode.tags.add(tagName)
+                    count++
+                } catch (Exception ex2) {}
+            }
+        }
+        
+        if (count > 0) {
+            
+            
+            if (dragSourceRow != -1) {
+                int modelRow = resultsTable.convertRowIndexToModel(dragSourceRow)
+                Node sourceNode = getNodeFromRow(dragSourceRow)
+                if (sourceNode != null) {
+                    String tagsString = getSortedTagsString(sourceNode)
+                    tableModel.setValueAt(tagsString, modelRow, 6)
+                }
+            }
+            
+            int selectedRow = resultsTable.getSelectedRow()
+            if (selectedRow != -1) {
+                showNodeDetails(selectedRow)
+            }
+        }
+    }
+    
+    private void startDrag(MouseEvent e) {
+        isDragging = true
+        resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+        
+        dragGhostWindow = new JWindow()
+        dragGhostWindow.setAlwaysOnTop(true)
+        dragGhostWindow.setBackground(new Color(0, 0, 0, 0))
+        
+        JPanel ghostPanel = new JPanel()
+        ghostPanel.setBackground(new Color(255, 200, 0, 220))
+        ghostPanel.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(Color.ORANGE, 2),
+            BorderFactory.createEmptyBorder(5, 10, 5, 10)
+        ))
+        ghostPanel.setOpaque(true)
+        
+        JLabel ghostLabel = new JLabel("🏷️ " + draggedTag)
+        ghostLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
+        ghostLabel.setForeground(Color.BLACK)
+        ghostPanel.add(ghostLabel)
+        
+        dragGhostWindow.add(ghostPanel)
+        dragGhostWindow.pack()
+        
+        Point mouseLoc = MouseInfo.getPointerInfo().getLocation()
+        dragGhostWindow.setLocation(mouseLoc.x - 10, mouseLoc.y - 10)
+        dragGhostWindow.setVisible(true)
+    }
+    
+    private void updateDragGhost(MouseEvent e) {
+        if (dragGhostWindow != null && dragGhostWindow.isVisible()) {
+            Point mouseLoc = MouseInfo.getPointerInfo().getLocation()
+            dragGhostWindow.setLocation(mouseLoc.x - 10, mouseLoc.y - 10)
+        }
+    }
+    
+    private void cleanupDrag() {
+        isDragging = false
+        draggedTag = null
+        dragStartPoint = null
+        dragSourceRow = -1
+        resultsTable.setCursor(Cursor.getDefaultCursor())
+        
+        if (dragGhostWindow != null) {
+            dragGhostWindow.dispose()
+            dragGhostWindow = null
+        }
+       
+    }
+    
+    private Node getNodeFromRow(int viewRow) {
+        if (viewRow == -1) return null
+        int modelRow = resultsTable.convertRowIndexToModel(viewRow)
+        Object value = tableModel.getValueAt(modelRow, 9)
+        return (value instanceof Object[]) ? ((Object[])value)[0] as Node : 
+               (value instanceof Node ? value as Node : null)
+    }
+    
+    private String extractTagName(String tagsString) {
+        if (tagsString == null || tagsString.trim().isEmpty()) return null
+        
+        def tagPattern = ~/TagIcon\s*\[tag=([^,\]]+)[,\]]/
+        def matcher = (tagsString =~ tagPattern)
+        
+        if (matcher.find()) {
+            return matcher.group(1).trim()
+        }
+        
+        if (!tagsString.contains("TagIcon") && !tagsString.contains("font=")) {
+            def parts = tagsString.split("\\s*,\\s*")
+            if (parts.length > 0) {
+                return parts[0].trim()
+            }
+        }
+        return null
+    }
+    
+    
+    
+    // ====== به‌روزرسانی ستون تگ ======
+    private void updateTagColumn(int row) {
+        int modelRow = resultsTable.convertRowIndexToModel(row)
+        Object value = tableModel.getValueAt(modelRow, 9)
+        Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : 
+                    (value instanceof Node ? value as Node : null)
+        
+        if (node != null) {
+            String tagsString = getSortedTagsString(node)
+            tableModel.setValueAt(tagsString, modelRow, 6)
+            resultsTable.repaint()
+        }
+    }
+    
+    // ====== هایلایت کردن ردیف مقصد ======
+    private void highlightDropTarget(int row) {
+        // پاک کردن هایلایت قبلی
+        clearDropHighlight()
+        
+        // هایلایت ردیف با رنگ خاص
+        resultsTable.setRowSelectionInterval(row, row)
+        resultsTable.setSelectionBackground(new Color(100, 255, 100, 150))
+        resultsTable.repaint()
+    }
+    
+    // ====== پاک کردن هایلایت ======
+    private void clearDropHighlight() {
+        resultsTable.setSelectionBackground(new Color(200, 255, 200))
+        // اگر ردیفی انتخاب شده بود، انتخاب را حفظ کن
+        int selectedRow = resultsTable.getSelectedRow()
+        if (selectedRow != -1) {
+            resultsTable.setRowSelectionInterval(selectedRow, selectedRow)
+        }
+    }
+    // ========== کپی و چسباندن تگ ==========
+    private void copyTagFromSelectedRow() {
+        int selectedRow = resultsTable.getSelectedRow()
+        if (selectedRow == -1) {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "لطفاً ابتدا یک ردیف در جدول نتایج انتخاب کنید.", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        int modelRow = resultsTable.convertRowIndexToModel(selectedRow)
+        Object tagsValue = tableModel.getValueAt(modelRow, 6)  // ستون Tags
+        
+        if (tagsValue == null || tagsValue.toString().trim().length() == 0) {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "⚠️ این گره هیچ تگی ندارد!", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        String tagsString = tagsValue.toString().trim()
+        def tagPattern = ~/TagIcon\s*\[tag=([^,\]]+)[,\]]/
+        def matcher = (tagsString =~ tagPattern)
+        
+        if (matcher.find()) {
+            copiedTag = matcher.group(1).trim()
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "✅ تگ \"${copiedTag}\" کپی شد.", 
+                "موفق", JOptionPane.INFORMATION_MESSAGE)
+        } else {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "⚠️ تگی در این ردیف پیدا نشد.", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+        }
+    }
+    
+    private void pasteTagToSelectedRows() {
+        if (copiedTag == null || copiedTag.isEmpty()) {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "⚠️ هیچ تگی کپی نشده است.\n" +
+                "لطفاً ابتدا یک تگ را کپی کنید.", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        int[] selectedRows = resultsTable.getSelectedRows()
+        if (selectedRows == null || selectedRows.length == 0) {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "لطفاً حداقل یک ردیف در جدول نتایج انتخاب کنید.", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        int count = 0
+        for (int viewRow : selectedRows) {
+            int modelRow = resultsTable.convertRowIndexToModel(viewRow)
+            Object value = tableModel.getValueAt(modelRow, 9)
+            Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
+            if (node != null) {
+                try {
+                    def controller = org.freeplane.features.tag.TagController.getController()
+                    if (controller) {
+                        controller.addTag(node.getDelegate(), copiedTag)
+                        count++
+                    } else {
+                        try {
+                            node.tags.add(copiedTag)
+                            count++
+                        } catch (Exception e2) {
+                            System.err.println("خطا در تگ‌گذاری گره: ${node.getText()}")
+                        }
+                    }
+                } catch (Exception e) {
+                    try {
+                        node.tags.add(copiedTag)
+                        count++
+                    } catch (Exception e2) {
+                        System.err.println("خطا در تگ‌گذاری گره: ${node.getText()}")
+                    }
+                }
+            }
+        }
+        
+        
+    }
+    // ========== برای کپی و چسباندن تگ ==========
+    private String copiedTag = null
+    private KeyStroke copyTagShortcut = KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK)
+    private KeyStroke pasteTagShortcut = KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK)
+    // =========================================
+    // =========================================
+    // ====== متد کمکی برای افزودن تگ به گره ======
+    private void addTagToNode(Node targetNode, String tagName) {
+        if (targetNode == null || tagName == null || tagName.isEmpty()) return
+        
+        try {
+            def controller = org.freeplane.features.tag.TagController.getController()
+            if (controller) {
+                controller.addTag(targetNode.getDelegate(), tagName)
+                
+            } else {
+                try {
+                    targetNode.tags.add(tagName)
+                    
+                } catch (Exception e2) {
+                    System.err.println("خطا در تگ‌گذاری گره: ${targetNode.getText()}")
+                }
+            }
+        } catch (Exception e) {
+            try {
+                targetNode.tags.add(tagName)
+                
+            } catch (Exception e2) {
+                System.err.println("خطا در تگ‌گذاری گره: ${targetNode.getText()}")
+            }
+        }
+    }
+    // ========================================
+    // ========== مدیریت ردیف گره انتخاب شده در نقشه ==========
+    private void addMapNodeRow(Node node) {
+        if (node == null) {
+            removeMapNodeRow()
+            return
+        }
+        
+        // اگر ردیف قبلاً اضافه شده، آن را بروز کن
+        if (mapNodeRowAdded) {
+            updateMapNodeRow(node)
+            return
+        }
+        
+        // دریافت اطلاعات گره
+        String fileName = node.mindMap.file?.name ?: "Unnamed"
+        String styleName = node.style?.name ?: "(no style)"
+        String pathStr = getAncestorsPathCached(node)
+        String modifiedDate = node.getLastModifiedAt() ? dateFormat.format(node.getLastModifiedAt()) : ""
+        String createdDate = node.getCreatedAt() ? dateFormat.format(node.getCreatedAt()) : ""
+        String detailsText = node.details?.plain ?: ""
+        String noteText = node.note?.plain ?: ""
+        String tagsString = getSortedTagsString(node)
+        
+        // اضافه کردن ردیف در بالای جدول (ایندکس 0)
+        tableModel.insertRow(0, [fileName, styleName, pathStr, modifiedDate, createdDate, "", tagsString, detailsText, noteText, [node] as Object[]] as Object[])
+        mapNodeRowAdded = true
+        mapNodeRowIndex = 0
+        
+        // هایلایت کردن ردیف
+        resultsTable.setRowSelectionInterval(0, 0)
+        resultsTable.repaint()
+    }
+    
+    private void updateMapNodeRow(Node node) {
+        if (!mapNodeRowAdded || mapNodeRowIndex == -1) {
+            addMapNodeRow(node)
+            return
+        }
+        
+        // بروزرسانی اطلاعات ردیف
+        String fileName = node.mindMap.file?.name ?: "Unnamed"
+        String styleName = node.style?.name ?: "(no style)"
+        String pathStr = getAncestorsPathCached(node)
+        String modifiedDate = node.getLastModifiedAt() ? dateFormat.format(node.getLastModifiedAt()) : ""
+        String createdDate = node.getCreatedAt() ? dateFormat.format(node.getCreatedAt()) : ""
+        String detailsText = node.details?.plain ?: ""
+        String noteText = node.note?.plain ?: ""
+        String tagsString = getSortedTagsString(node)
+        
+        tableModel.setValueAt(fileName, mapNodeRowIndex, 0)
+        tableModel.setValueAt(styleName, mapNodeRowIndex, 1)
+        tableModel.setValueAt(pathStr, mapNodeRowIndex, 2)
+        tableModel.setValueAt(modifiedDate, mapNodeRowIndex, 3)
+        tableModel.setValueAt(createdDate, mapNodeRowIndex, 4)
+        tableModel.setValueAt("", mapNodeRowIndex, 5) // Icons
+        tableModel.setValueAt(tagsString, mapNodeRowIndex, 6)
+        tableModel.setValueAt(detailsText, mapNodeRowIndex, 7)
+        tableModel.setValueAt(noteText, mapNodeRowIndex, 8)
+        tableModel.setValueAt([node] as Object[], mapNodeRowIndex, 9)
+        
+        // هایلایت کردن ردیف
+        resultsTable.setRowSelectionInterval(mapNodeRowIndex, mapNodeRowIndex)
+        resultsTable.repaint()
+    }
+    
+    private void removeMapNodeRow() {
+        if (!mapNodeRowAdded || mapNodeRowIndex == -1) {
+            return
+        }
+        
+        try {
+            if (mapNodeRowIndex < tableModel.getRowCount()) {
+                tableModel.removeRow(mapNodeRowIndex)
+            }
+        } catch (Exception e) {
+            // نادیده گرفتن خطا
+        }
+        
+        mapNodeRowAdded = false
+        mapNodeRowIndex = -1
+    }
+    // ========================================================
+    private void addTagFromSelectedRow() {
+        int selectedRow = resultsTable.getSelectedRow()
+        if (selectedRow == -1) {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "لطفاً ابتدا یک ردیف در جدول نتایج انتخاب کنید.", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        int modelRow = resultsTable.convertRowIndexToModel(selectedRow)
+        
+        // ====== دریافت تگ از ستون Tags (ستون شماره 6) ======
+        Object tagsValue = tableModel.getValueAt(modelRow, 6)  // ستون Tags
+        String tagToAdd = null
+        List<String> existingTags = []
+        
+        if (tagsValue != null && tagsValue.toString().trim().length() > 0) {
+            String tagsString = tagsValue.toString().trim()
+            
+            // ====== روش جدید: استخراج مستقیم با regex ======
+            // الگوی کامل برای تشخیص TagIcon
+            def tagPattern = ~/TagIcon\s*\[tag=([^,\]]+)[,\]]/
+            def matcher = (tagsString =~ tagPattern)
+            
+            // همه تگ‌های پیدا شده رو جمع کن
+            while (matcher.find()) {
+                String tagName = matcher.group(1).trim()
+                if (tagName && !tagName.isEmpty()) {
+                    existingTags.add(tagName)
+                }
+            }
+            
+            // اگر با regex بالا چیزی پیدا نشد، روش ساده‌تر رو امتحان کن
+            if (existingTags.isEmpty()) {
+                // اگر تگ به صورت ساده نوشته شده بود (مثلاً فقط "كم")
+                if (!tagsString.contains("TagIcon") && !tagsString.contains("font=")) {
+                    existingTags = tagsString.split("\\s*,\\s*").collect { it.trim() }.findAll { !it.isEmpty() }
+                }
+            }
+            // ==============================================
+        }
+        
+        // اگر تگی پیدا نشد، خطا بده
+        if (existingTags.isEmpty()) {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "⚠️ این گره هیچ تگی در ستون Tags ندارد!\n" +
+                "لطفاً گره‌ای که دارای تگ است را انتخاب کنید.", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        // ====== اگر دقیقاً یک تگ وجود دارد، مستقیم استفاده کن ======
+        if (existingTags.size() == 1) {
+            tagToAdd = existingTags[0]
+        } else {
+            // اگر چند تگ وجود دارد، از کاربر بپرس کدام را می‌خواهد
+            String[] options = existingTags.toArray(new String[0])
+            String selectedTag = (String) JOptionPane.showInputDialog(
+                UITools.getCurrentFrame(),
+                "این گره ${existingTags.size()} تگ دارد:\n" +
+                "کدام تگ را به گره‌های انتخاب‌شده اضافه کنم؟",
+                "انتخاب تگ",
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]
+            )
+            
+            if (selectedTag == null) {
+                return // کاربر لغو کرد
+            }
+            tagToAdd = selectedTag
+        }
+        // ===========================================================
+        
+        if (!tagToAdd || tagToAdd.isEmpty()) {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "هیچ تگی انتخاب نشد.", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        // دریافت گره‌های انتخاب‌شده در نقشه اصلی
+        def selectedNodes = ScriptUtils.c().selecteds
+        if (!selectedNodes || selectedNodes.isEmpty()) {
+            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
+                "هیچ گره‌ای در نقشه اصلی انتخاب نشده است.\n" +
+                "لطفاً حداقل یک گره را در نقشه اصلی انتخاب کنید.", 
+                "خطا", JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        // تگ‌گذاری روی گره‌های انتخاب‌شده
+        int count = 0
+        for (def targetNode in selectedNodes) {
+            try {
+                def controller = org.freeplane.features.tag.TagController.getController()
+                if (controller) {
+                    controller.addTag(targetNode.getDelegate(), tagToAdd)
+                    count++
+                } else {
+                    try {
+                        targetNode.tags.add(tagToAdd)
+                        count++
+                    } catch (Exception e2) {
+                        System.err.println("خطا در تگ‌گذاری گره: ${targetNode.getText()}")
+                    }
+                }
+            } catch (Exception e) {
+                try {
+                    targetNode.tags.add(tagToAdd)
+                    count++
+                } catch (Exception e2) {
+                    System.err.println("خطا در تگ‌گذاری گره: ${targetNode.getText()}")
+                }
+            }
+        }
+        
+        
+    }
+    
+    private void setupTagShortcut() {
+        if (resultsTable == null) return
+        
+        // میانبر F8
+        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(tagShortcut, "addTagFromRow")
+        resultsTable.getActionMap().put("addTagFromRow", new AbstractAction() {
+            void actionPerformed(ActionEvent e) {
+                addTagFromSelectedRow()
+            }
+        })
+        
+        // میانبر کپی تگ (Ctrl+Shift+C)
+        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(copyTagShortcut, "copyTag")
+        resultsTable.getActionMap().put("copyTag", new AbstractAction() {
+            void actionPerformed(ActionEvent e) {
+                copyTagFromSelectedRow()
+            }
+        })
+        
+        // میانبر چسباندن تگ (Ctrl+Shift+V)
+        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(pasteTagShortcut, "pasteTag")
+        resultsTable.getActionMap().put("pasteTag", new AbstractAction() {
+            void actionPerformed(ActionEvent e) {
+                pasteTagToSelectedRows()
+            }
+        })
+        
+        // میانبرهای全局
+        if (currentSplitPane != null) {
+            currentSplitPane.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(tagShortcut, "addTagFromRowGlobal")
+            currentSplitPane.getActionMap().put("addTagFromRowGlobal", new AbstractAction() {
+                void actionPerformed(ActionEvent e) {
+                    addTagFromSelectedRow()
+                }
+            })
+            
+            currentSplitPane.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(copyTagShortcut, "copyTagGlobal")
+            currentSplitPane.getActionMap().put("copyTagGlobal", new AbstractAction() {
+                void actionPerformed(ActionEvent e) {
+                    copyTagFromSelectedRow()
+                }
+            })
+            
+            currentSplitPane.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(pasteTagShortcut, "pasteTagGlobal")
+            currentSplitPane.getActionMap().put("pasteTagGlobal", new AbstractAction() {
+                void actionPerformed(ActionEvent e) {
+                    pasteTagToSelectedRows()
+                }
+            })
+        }
+    }
+    // ===========================================
     private List<String> getDefaultFullColumnOrder() {
         return ["File", "Style", "Ancestors", "Date Modified", "Date Created",
                 "Icons", "Tags", "Details", "Note", "Node"]
@@ -915,6 +2005,7 @@ class SimpleMapCrawler {
         })
         focusSearchField()
         setupKeyboardShortcut()
+        setupTagShortcut()
         applyFontsToComponents()
         updateBaseLineHeight()
         updateModeDependencies()
@@ -1321,203 +2412,308 @@ class SimpleMapCrawler {
         leftPreviewPanel.add(previewScroll, BorderLayout.CENTER)
         tableModel = new DefaultTableModel(
             ["File","Style","Ancestors","Date Modified","Date Created","Icons","Tags","Details","Note","Node"] as Object[], 0)
-        resultsTable = new JTable(tableModel)
-        resultsTable.setRowHeight(20)
-        resultsTable.addMouseListener(new MouseAdapter() {
-            void mouseEntered(MouseEvent e) {
-                resultsTable.requestFocusInWindow()
-            }
-        })
-        resultsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION)
-        resultsTable.addMouseListener(new MouseAdapter() {
-            void mouseClicked(MouseEvent e) {
-                if (SwingUtilities.isRightMouseButton(e)) {
-                    int row = resultsTable.rowAtPoint(e.getPoint())
-                    if (row != -1) {
-                        if (!resultsTable.isRowSelected(row)) {
-                            resultsTable.setRowSelectionInterval(row, row)
-                        }
-                        JPopupMenu popup = new JPopupMenu()
-                        JMenuItem copyItem = new JMenuItem("کپی گره(ها)")
-                        copyItem.addActionListener({ copySelectedNodesDeep() })
-                        popup.add(copyItem)
-                        JMenuItem cutItem = new JMenuItem("برش گره(ها)")
-                        cutItem.addActionListener({ cutSelectedNodesDeep() })
-                        popup.add(cutItem)
-                        JMenuItem pasteItem = new JMenuItem("چسباندن گره(ها) در زیر")
-                        pasteItem.addActionListener({ pasteNodesFromClipboard() })
-                        popup.add(pasteItem)
-                        popup.addSeparator()
-                        JMenuItem deleteItem = new JMenuItem("حذف گره از نقشه")
-                        deleteItem.addActionListener({ deleteSelectedNode() })
-                        popup.add(deleteItem)
-                        JMenuItem editItem = new JMenuItem("ویرایش گره")
-                        editItem.addActionListener({ editSelectedNode() })
-                        popup.add(editItem)
-                        popup.show(resultsTable, e.getX(), e.getY())
-                    }
+resultsTable = new JTable(tableModel)
+resultsTable.setRowHeight(20)
+
+// ====== راه‌اندازی Drag & Drop تگ ======
+setupTagDragAndDrop()
+// ====== ورود موس به جدول ======
+resultsTable.addMouseListener(new MouseAdapter() {
+    void mouseEntered(MouseEvent e) {
+        resultsTable.requestFocusInWindow()
+    }
+})
+
+// ====== منوی کلیک راست ======
+resultsTable.addMouseListener(new MouseAdapter() {
+    void mouseClicked(MouseEvent e) {
+        if (SwingUtilities.isRightMouseButton(e)) {
+            int row = resultsTable.rowAtPoint(e.getPoint())
+            if (row != -1) {
+                if (!resultsTable.isRowSelected(row)) {
+                    resultsTable.setRowSelectionInterval(row, row)
                 }
+                JPopupMenu popup = new JPopupMenu()
+                
+                JMenuItem copyItem = new JMenuItem("کپی گره(ها)")
+                copyItem.addActionListener({ copySelectedNodesDeep() })
+                popup.add(copyItem)
+                
+                JMenuItem cutItem = new JMenuItem("برش گره(ها)")
+                cutItem.addActionListener({ cutSelectedNodesDeep() })
+                popup.add(cutItem)
+                
+                JMenuItem pasteItem = new JMenuItem("چسباندن گره(ها) در زیر")
+                pasteItem.addActionListener({ pasteNodesFromClipboard() })
+                popup.add(pasteItem)
+                popup.addSeparator()
+                
+                JMenuItem copyTagItem = new JMenuItem("کپی تگ (Ctrl+Shift+C)")
+                copyTagItem.addActionListener({ copyTagFromSelectedRow() })
+                popup.add(copyTagItem)
+                
+                JMenuItem pasteTagItem = new JMenuItem("چسباندن تگ (Ctrl+Shift+V)")
+                pasteTagItem.addActionListener({ pasteTagToSelectedRows() })
+                popup.add(pasteTagItem)
+                popup.addSeparator()
+                
+                JMenuItem deleteItem = new JMenuItem("حذف گره از نقشه")
+                deleteItem.addActionListener({ deleteSelectedNode() })
+                popup.add(deleteItem)
+                
+                JMenuItem editItem = new JMenuItem("ویرایش گره")
+                editItem.addActionListener({ editSelectedNode() })
+                popup.add(editItem)
+                
+                JMenuItem tagItem = new JMenuItem("اضافه کردن تگ (F8)")
+                tagItem.addActionListener({ addTagFromSelectedRow() })
+                popup.add(tagItem)
+                
+                popup.show(resultsTable, e.getX(), e.getY())
             }
-        })
-        Action copyAction = new AbstractAction() {
-            void actionPerformed(ActionEvent e) { copySelectedNodesDeep() }
         }
-        Action cutAction = new AbstractAction() {
-            void actionPerformed(ActionEvent e) { cutSelectedNodesDeep() }
-        }
-        Action pasteAction = new AbstractAction() {
-            void actionPerformed(ActionEvent e) { pasteNodesFromClipboard() }
-        }
-        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), "copyNodes")
-        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_X, InputEvent.CTRL_DOWN_MASK), "cutNodes")
-        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK), "pasteNodes")
-        resultsTable.getActionMap().put("copyNodes", copyAction)
-        resultsTable.getActionMap().put("cutNodes", cutAction)
-        resultsTable.getActionMap().put("pasteNodes", pasteAction)
-        resultsTable.setSelectionBackground(new Color(200, 255, 200))
-        resultsTable.setSelectionForeground(Color.BLACK)
-        resultsTable.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-        resultsTable.getTableHeader().setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-        resultsTable.setShowHorizontalLines(true)
-        resultsTable.setShowVerticalLines(true)
-        resultsTable.setGridColor(Color.DARK_GRAY)
-        resultsTable.setIntercellSpacing(new Dimension(2, 2))
-        resultsTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF)
-        rowSorter = new TableRowSorter<>(tableModel)
-        rowSorter.setComparator(3, new Comparator<String>() {
-            int compare(String d1, String d2) {
-                if (d1 == null && d2 == null) return 0
-                if (d1 == null) return -1
-                if (d2 == null) return 1
-                try {
-                    Date date1 = dateFormat.parse(d1)
-                    Date date2 = dateFormat.parse(d2)
-                    return date1.compareTo(date2)
-                } catch (Exception e) { return d1.compareTo(d2) }
-            }
-        })
-        rowSorter.setComparator(4, new Comparator<String>() {
-            int compare(String d1, String d2) {
-                if (d1 == null && d2 == null) return 0
-                if (d1 == null) return -1
-                if (d2 == null) return 1
-                try {
-                    Date date1 = dateFormat.parse(d1)
-                    Date date2 = dateFormat.parse(d2)
-                    return date1.compareTo(date2)
-                } catch (Exception e) { return d1.compareTo(d2) }
-            }
-        })
-        rowSorter.setComparator(2, new Comparator<String>() {
-            int compare(String s1, String s2) {
-                if (s1 == null && s2 == null) return 0
-                if (s1 == null) return -1
-                if (s2 == null) return 1
-                return s1.compareTo(s2)
-            }
-        })
-        rowSorter.setComparator(6, new Comparator<String>() {
-            int compare(String s1, String s2) {
-                if (s1 == null && s2 == null) return 0
-                if (s1 == null) return -1
-                if (s2 == null) return 1
-                return s1.compareTo(s2)
-            }
-        })
-        resultsTable.setRowSorter(rowSorter)
-        resultsTable.getColumnModel().getColumn(0).setCellRenderer(new FontAwareRenderer(0))
-        resultsTable.getColumnModel().getColumn(1).setCellRenderer(new FontAwareRenderer(1))
-        resultsTable.getColumnModel().getColumn(2).setCellRenderer(new FontAwarePathRenderer())
-        resultsTable.getColumnModel().getColumn(3).setCellRenderer(new FontAwareDateRenderer())
-        resultsTable.getColumnModel().getColumn(4).setCellRenderer(new FontAwareDateRenderer())
-        resultsTable.getColumnModel().getColumn(5).setCellRenderer(new FontAwareIconsRenderer())
-        resultsTable.getColumnModel().getColumn(6).setCellRenderer(new FontAwareTagsRenderer())
-        resultsTable.getColumnModel().getColumn(7).setCellRenderer(new FontAwareHtmlRenderer(7))
-        resultsTable.getColumnModel().getColumn(8).setCellRenderer(new FontAwareHtmlRenderer(8))
-        resultsTable.getColumnModel().getColumn(9).setCellRenderer(new FontAwareNodeRenderer())
-        resultsTable.getColumnModel().getColumn(0).setPreferredWidth(120)
-        resultsTable.getColumnModel().getColumn(1).setPreferredWidth(80)
-        resultsTable.getColumnModel().getColumn(2).setPreferredWidth(200)
-        resultsTable.getColumnModel().getColumn(3).setPreferredWidth(100)
-        resultsTable.getColumnModel().getColumn(4).setPreferredWidth(100)
-        resultsTable.getColumnModel().getColumn(5).setPreferredWidth(100)
-        resultsTable.getColumnModel().getColumn(6).setPreferredWidth(80)
-        resultsTable.getColumnModel().getColumn(7).setPreferredWidth(150)
-        resultsTable.getColumnModel().getColumn(8).setPreferredWidth(150)
-        resultsTable.getColumnModel().getColumn(9).setPreferredWidth(350)
-        resultsTable.getColumnModel().getColumn(0).setMinWidth(60)
-        resultsTable.getColumnModel().getColumn(1).setMinWidth(50)
-        resultsTable.getColumnModel().getColumn(2).setMinWidth(80)
-        resultsTable.getColumnModel().getColumn(3).setMinWidth(80)
-        resultsTable.getColumnModel().getColumn(4).setMinWidth(80)
-        resultsTable.getColumnModel().getColumn(5).setMinWidth(60)
-        resultsTable.getColumnModel().getColumn(6).setMinWidth(50)
-        resultsTable.getColumnModel().getColumn(7).setMinWidth(80)
-        resultsTable.getColumnModel().getColumn(8).setMinWidth(80)
-        resultsTable.getColumnModel().getColumn(9).setMinWidth(120)
-        resultsTable.setDefaultEditor(Object, null)
-        createColumnVisibilityDialog()
-        resultsTable.getTableHeader().addMouseListener(new MouseAdapter() {
-            void mouseClicked(MouseEvent e) {
-                if (SwingUtilities.isRightMouseButton(e)) {
-                    columnVisibilityDialog.setLocation(e.getXOnScreen(), e.getYOnScreen())
-                    columnVisibilityDialog.setVisible(true)
-                    SwingUtilities.invokeLater(() -> columnList.requestFocusInWindow())
-                }
-            }
-        })
-        resultsTable.addMouseMotionListener(new MouseMotionAdapter() {
-            private int lastHoverRow = -1
-            void mouseMoved(MouseEvent e) {
-                Point p = e.getPoint()
-                int row = resultsTable.rowAtPoint(p)
-                if (row != -1 && row != lastHoverRow) {
-                    lastHoverRow = row
-                    if (hoverTimer != null) hoverTimer.stop()
-                    hoverTimer = new Timer(200, new ActionListener() {
-                        void actionPerformed(ActionEvent ev) {
-                            if (row < resultsTable.getRowCount() && row == lastHoverRow) {
-                                resultsTable.setRowSelectionInterval(row, row)
-                                showNodeDetails(row)
-                            }
-                            hoverTimer.stop()
-                        }
-                    })
-                    hoverTimer.setRepeats(false)
-                    hoverTimer.start()
-                } else if (row == -1) {
-                    lastHoverRow = -1
-                }
-            }
-        })
-        resultsTable.addKeyListener(new KeyAdapter() {
-            void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_RIGHT) {
-                    toggleColumnsWithRightArrow()
-                } else if (e.getKeyCode() == KeyEvent.VK_LEFT) {
-                    toggleColumnsWithLeftArrow()
-                }
-            }
-        })
-        resultsTable.getSelectionModel().addListSelectionListener({ e ->
-            if (e.getValueIsAdjusting()) return
+    }
+})
+
+// ====== کلیک ساده برای رفتن به گره ======
+resultsTable.addMouseListener(new MouseAdapter() {
+    void mouseClicked(MouseEvent e) {
+        if (e.clickCount == 1 && SwingUtilities.isLeftMouseButton(e)) {
             int row = resultsTable.getSelectedRow()
             if (row != -1) {
-                showNodeDetails(row)
-            } else {
-                clearPreview()
+                goToNode(row)
             }
-        })
-        resultsTable.addMouseListener(new MouseAdapter() {
-            void mouseClicked(MouseEvent e) {
-                if (e.clickCount == 2) { int row = resultsTable.selectedRow; if (row != -1) goToNode(row) }
+        }
+    }
+})
+
+// ====== حرکت موس روی ردیف‌ها ======
+resultsTable.addMouseMotionListener(new MouseMotionAdapter() {
+    private int lastHoverRow = -1
+    void mouseMoved(MouseEvent e) {
+        Point p = e.getPoint()
+        int row = resultsTable.rowAtPoint(p)
+        if (row != -1 && row != lastHoverRow) {
+            lastHoverRow = row
+            if (hoverTimer != null) hoverTimer.stop()
+            hoverTimer = new Timer(200, new ActionListener() {
+                void actionPerformed(ActionEvent ev) {
+                    if (row < resultsTable.getRowCount() && row == lastHoverRow) {
+                        resultsTable.setRowSelectionInterval(row, row)
+                        showNodeDetails(row)
+                    }
+                    hoverTimer.stop()
+                }
+            })
+            hoverTimer.setRepeats(false)
+            hoverTimer.start()
+        } else if (row == -1) {
+            lastHoverRow = -1
+        }
+    }
+})
+
+// ====== کلیدهای صفحه کلید ======
+resultsTable.addKeyListener(new KeyAdapter() {
+    void keyPressed(KeyEvent e) {
+        if (e.getKeyCode() == KeyEvent.VK_RIGHT) {
+            toggleColumnsWithRightArrow()
+        } else if (e.getKeyCode() == KeyEvent.VK_LEFT) {
+            toggleColumnsWithLeftArrow()
+        } else if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+            int row = resultsTable.getSelectedRow()
+            if (row != -1) {
+                goToNode(row)
+                e.consume()
             }
-        })
-        resultsTable.addKeyListener(new KeyAdapter() {
-            void keyPressed(KeyEvent e) {
-                if (e.keyCode == KeyEvent.VK_ENTER) { int row = resultsTable.selectedRow; if (row != -1) goToNode(row) }
-            }
-        })
+        }
+    }
+})
+
+// ====== انتخاب ردیف ======
+resultsTable.getSelectionModel().addListSelectionListener({ e ->
+    if (e.getValueIsAdjusting()) return
+    int row = resultsTable.getSelectedRow()
+    if (row != -1) {
+        showNodeDetails(row)
+    } else {
+        clearPreview()
+    }
+})
+
+// ====== تنظیمات جدول ======
+resultsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION)
+resultsTable.setSelectionBackground(new Color(200, 255, 200))
+resultsTable.setSelectionForeground(Color.BLACK)
+resultsTable.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+resultsTable.getTableHeader().setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+resultsTable.setShowHorizontalLines(true)
+resultsTable.setShowVerticalLines(true)
+resultsTable.setGridColor(Color.DARK_GRAY)
+resultsTable.setIntercellSpacing(new Dimension(2, 2))
+resultsTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF)
+
+// ====== RowSorter ======
+rowSorter = new TableRowSorter<>(tableModel)
+rowSorter.setComparator(3, new Comparator<String>() {
+    int compare(String d1, String d2) {
+        if (d1 == null && d2 == null) return 0
+        if (d1 == null) return -1
+        if (d2 == null) return 1
+        try {
+            Date date1 = dateFormat.parse(d1)
+            Date date2 = dateFormat.parse(d2)
+            return date1.compareTo(date2)
+        } catch (Exception e) { return d1.compareTo(d2) }
+    }
+})
+rowSorter.setComparator(4, new Comparator<String>() {
+    int compare(String d1, String d2) {
+        if (d1 == null && d2 == null) return 0
+        if (d1 == null) return -1
+        if (d2 == null) return 1
+        try {
+            Date date1 = dateFormat.parse(d1)
+            Date date2 = dateFormat.parse(d2)
+            return date1.compareTo(date2)
+        } catch (Exception e) { return d1.compareTo(d2) }
+    }
+})
+rowSorter.setComparator(2, new Comparator<String>() {
+    int compare(String s1, String s2) {
+        if (s1 == null && s2 == null) return 0
+        if (s1 == null) return -1
+        if (s2 == null) return 1
+        return s1.compareTo(s2)
+    }
+})
+rowSorter.setComparator(6, new Comparator<String>() {
+    int compare(String s1, String s2) {
+        if (s1 == null && s2 == null) return 0
+        if (s1 == null) return -1
+        if (s2 == null) return 1
+        return s1.compareTo(s2)
+    }
+})
+resultsTable.setRowSorter(rowSorter)
+
+// ====== Cell Renderers ======
+resultsTable.getColumnModel().getColumn(0).setCellRenderer(new FontAwareRenderer(0))
+resultsTable.getColumnModel().getColumn(1).setCellRenderer(new FontAwareRenderer(1))
+resultsTable.getColumnModel().getColumn(2).setCellRenderer(new FontAwarePathRenderer())
+resultsTable.getColumnModel().getColumn(3).setCellRenderer(new FontAwareDateRenderer())
+resultsTable.getColumnModel().getColumn(4).setCellRenderer(new FontAwareDateRenderer())
+resultsTable.getColumnModel().getColumn(5).setCellRenderer(new FontAwareIconsRenderer())
+resultsTable.getColumnModel().getColumn(6).setCellRenderer(new FontAwareTagsRenderer())
+resultsTable.getColumnModel().getColumn(7).setCellRenderer(new FontAwareHtmlRenderer(7))
+resultsTable.getColumnModel().getColumn(8).setCellRenderer(new FontAwareHtmlRenderer(8))
+resultsTable.getColumnModel().getColumn(9).setCellRenderer(new FontAwareNodeRenderer())
+
+// ====== ستون‌ها ======
+resultsTable.getColumnModel().getColumn(0).setPreferredWidth(120)
+resultsTable.getColumnModel().getColumn(1).setPreferredWidth(80)
+resultsTable.getColumnModel().getColumn(2).setPreferredWidth(200)
+resultsTable.getColumnModel().getColumn(3).setPreferredWidth(100)
+resultsTable.getColumnModel().getColumn(4).setPreferredWidth(100)
+resultsTable.getColumnModel().getColumn(5).setPreferredWidth(100)
+resultsTable.getColumnModel().getColumn(6).setPreferredWidth(80)
+resultsTable.getColumnModel().getColumn(7).setPreferredWidth(150)
+resultsTable.getColumnModel().getColumn(8).setPreferredWidth(150)
+resultsTable.getColumnModel().getColumn(9).setPreferredWidth(350)
+
+resultsTable.getColumnModel().getColumn(0).setMinWidth(60)
+resultsTable.getColumnModel().getColumn(1).setMinWidth(50)
+resultsTable.getColumnModel().getColumn(2).setMinWidth(80)
+resultsTable.getColumnModel().getColumn(3).setMinWidth(80)
+resultsTable.getColumnModel().getColumn(4).setMinWidth(80)
+resultsTable.getColumnModel().getColumn(5).setMinWidth(60)
+resultsTable.getColumnModel().getColumn(6).setMinWidth(50)
+resultsTable.getColumnModel().getColumn(7).setMinWidth(80)
+resultsTable.getColumnModel().getColumn(8).setMinWidth(80)
+resultsTable.getColumnModel().getColumn(9).setMinWidth(120)
+
+resultsTable.setDefaultEditor(Object, null)
+
+// ====== میانبرهای کپی/برش/چسباندن ======
+Action copyAction = new AbstractAction() {
+    void actionPerformed(ActionEvent e) { copySelectedNodesDeep() }
+}
+Action cutAction = new AbstractAction() {
+    void actionPerformed(ActionEvent e) { cutSelectedNodesDeep() }
+}
+Action pasteAction = new AbstractAction() {
+    void actionPerformed(ActionEvent e) { pasteNodesFromClipboard() }
+}
+resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), "copyNodes")
+resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_X, InputEvent.CTRL_DOWN_MASK), "cutNodes")
+resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK), "pasteNodes")
+resultsTable.getActionMap().put("copyNodes", copyAction)
+resultsTable.getActionMap().put("cutNodes", cutAction)
+resultsTable.getActionMap().put("pasteNodes", pasteAction)
+
+
+        createColumnVisibilityDialog()
+                resultsTable.getTableHeader().addMouseListener(new MouseAdapter() {
+                    void mouseClicked(MouseEvent e) {
+                        if (SwingUtilities.isRightMouseButton(e)) {
+                            columnVisibilityDialog.setLocation(e.getXOnScreen(), e.getYOnScreen())
+                            columnVisibilityDialog.setVisible(true)
+                            SwingUtilities.invokeLater(() -> columnList.requestFocusInWindow())
+                        }
+                    }
+                })
+                resultsTable.addMouseMotionListener(new MouseMotionAdapter() {
+                    private int lastHoverRow = -1
+                    void mouseMoved(MouseEvent e) {
+                        Point p = e.getPoint()
+                        int row = resultsTable.rowAtPoint(p)
+                        if (row != -1 && row != lastHoverRow) {
+                            lastHoverRow = row
+                            if (hoverTimer != null) hoverTimer.stop()
+                            hoverTimer = new Timer(200, new ActionListener() {
+                                void actionPerformed(ActionEvent ev) {
+                                    if (row < resultsTable.getRowCount() && row == lastHoverRow) {
+                                        resultsTable.setRowSelectionInterval(row, row)
+                                        showNodeDetails(row)
+                                    }
+                                    hoverTimer.stop()
+                                }
+                            })
+                            hoverTimer.setRepeats(false)
+                            hoverTimer.start()
+                        } else if (row == -1) {
+                            lastHoverRow = -1
+                        }
+                    }
+                })
+                resultsTable.addKeyListener(new KeyAdapter() {
+                    void keyPressed(KeyEvent e) {
+                        if (e.getKeyCode() == KeyEvent.VK_RIGHT) {
+                            toggleColumnsWithRightArrow()
+                        } else if (e.getKeyCode() == KeyEvent.VK_LEFT) {
+                            toggleColumnsWithLeftArrow()
+                        }
+                    }
+                })
+                resultsTable.getSelectionModel().addListSelectionListener({ e ->
+                    if (e.getValueIsAdjusting()) return
+                    int row = resultsTable.getSelectedRow()
+                    if (row != -1) {
+                        showNodeDetails(row)
+                    } else {
+                        clearPreview()
+                    }
+                })
+                resultsTable.addMouseListener(new MouseAdapter() {
+                    void mouseClicked(MouseEvent e) {
+                        if (e.clickCount == 2) { int row = resultsTable.selectedRow; if (row != -1) goToNode(row) }
+                    }
+                })
+                resultsTable.addKeyListener(new KeyAdapter() {
+                    void keyPressed(KeyEvent e) {
+                        if (e.keyCode == KeyEvent.VK_ENTER) { int row = resultsTable.selectedRow; if (row != -1) goToNode(row) }
+                    }
+                })
         tableScroll = new JScrollPane(resultsTable)
         tableScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED)
         tableScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED)
@@ -3018,11 +4214,15 @@ class SimpleMapCrawler {
         if (!rawText) return ""
         boolean isHtml = rawText.trim().startsWith("<")
         String content = rawText
-        if (!isHtml && trimMode && !singleLineMode && !fullMode) {
+        
+        // ====== تغییر: در Preview (columnWidth == 0) هیچگاه تریم نکن ======
+        if (!isHtml && trimMode && !singleLineMode && !fullMode && columnWidth > 0) {
             if (content.length() > trimLength) {
                 content = TextUtils.getShortText(content, trimLength, "\u2026")
             }
         }
+        // ================================================================
+        
         if (isHtml) {
             content = content.replaceAll("(?i)<\\/?(html|head|body)[^>]*>", "")
             content = content.replaceAll("(?i)<style[^>]*>.*?<\\/style>", "")
@@ -3042,11 +4242,16 @@ class SimpleMapCrawler {
             }
         } else {
             content = escapeHtml(content).replace("\n", "<br>")
-            if (singleLineMode && trimMode && content.length() > trimLength) {
-                content = TextUtils.getShortText(content, trimLength, "\u2026")
+            // ====== تغییر: در Preview (columnWidth == 0) هیچگاه تریم نکن ======
+            if (singleLineMode && trimMode && columnWidth > 0) {
+                if (content.length() > trimLength) {
+                    content = TextUtils.getShortText(content, trimLength, "\u2026")
+                }
             }
+            // ================================================================
         }
-        // ====== هایلایت چند کلمه‌ای ======
+        
+        // ====== هایلایت ======
         if (applyHighlight) {
             String highlightWord = (currentFilterText != null && !currentFilterText.isEmpty()) ? currentFilterText : lastSearchKeyword
             if (highlightWord != null && !highlightWord.isEmpty()) {
@@ -3073,7 +4278,7 @@ class SimpleMapCrawler {
                 }
             }
         }
-        // ===================================
+        
         Color fgColor = getNodeForegroundColor(node)
         String colorStyle = (fgColor != null) ? "color: rgb(${fgColor.red}, ${fgColor.green}, ${fgColor.blue});" : ""
         String family = font.getFamily()
@@ -3081,14 +4286,17 @@ class SimpleMapCrawler {
         String weight = font.isBold() ? "bold" : "normal"
         String styleFlag = font.isItalic() ? "italic" : "normal"
         String wrapperStyle = "font-family: ${family}; font-size: ${size}pt; font-weight: ${weight}; font-style: ${styleFlag}; ${colorStyle} margin:0; padding:0; direction: rtl; text-align: right;"
-        if (singleLineMode) {
+        
+        // ====== تغییر: در Preview (columnWidth == 0) از nowrap استفاده نکن ======
+        if (singleLineMode && columnWidth > 0) {
             wrapperStyle += " white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: ${columnWidth - 10}px; unicode-bidi: plaintext;"
         } else {
             wrapperStyle += " white-space: normal;"
         }
+        // ================================================================
+        
         return "<div style=\"${wrapperStyle}\">${content}</div>"
     }
-
     private void actuallyShowNodeDetails(int row) {
         int modelRow = resultsTable.convertRowIndexToModel(row)
         Object value = tableModel.getValueAt(modelRow, 9)
@@ -3153,6 +4361,33 @@ class SimpleMapCrawler {
                 fullPath = fullPath.reverse()
             }
             def displayPath = fullPath.size() > 1 ? fullPath[0..-2] : []
+            
+            // ====== اگر مسیر خالی است (گره روت)، یک مسیر پیش‌فرض بساز ======
+            // ====== اگر مسیر خالی است (گره روت)، یک مسیر پیش‌فرض بساز ======
+            if (displayPath.isEmpty()) {
+                JPanel tempPanel = new JPanel()
+                tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
+                tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+                
+                JLabel rootLabel = new JLabel("📁 Root")
+                // ====== فونت رو هم اندازه بریدکرامپ کن ======
+                if (fontBreadcrumb != null) {
+                    rootLabel.setFont(fontBreadcrumb.deriveFont(Font.BOLD, fontBreadcrumb.getSize() + 2))
+                } else {
+                    rootLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
+                }
+                rootLabel.setForeground(new Color(0, 100, 200))
+                rootLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
+                tempPanel.add(rootLabel)
+                
+                breadcrumbPanel.add(tempPanel)
+                breadcrumbPanel.revalidate()
+                breadcrumbPanel.repaint()
+                breadcrumbPanel.setVisible(true)
+                return
+            }
+            
+            // ====== ادامه کد قبلی برای زمانی که مسیر وجود داره ======
             if (useVisibleRootOnly) {
                 def viewRoot = getActiveViewRoot()
                 if (viewRoot != null && node.mindMap == viewRoot.mindMap) {
@@ -3166,6 +4401,33 @@ class SimpleMapCrawler {
                     }
                 }
             }
+            
+            // اگر باز هم خالی شد، Root رو نشون بده
+            // اگر باز هم خالی شد، Root رو نشون بده
+            if (displayPath.isEmpty()) {
+                JPanel tempPanel = new JPanel()
+                tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
+                tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+                
+                JLabel rootLabel = new JLabel("📁 Root")
+                // ====== فونت رو هم اندازه بریدکرامپ کن ======
+                if (fontBreadcrumb != null) {
+                    rootLabel.setFont(fontBreadcrumb.deriveFont(Font.BOLD, fontBreadcrumb.getSize() + 2))
+                } else {
+                    rootLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
+                }
+                rootLabel.setForeground(new Color(0, 100, 200))
+                rootLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
+                tempPanel.add(rootLabel)
+                
+                breadcrumbPanel.add(tempPanel)
+                breadcrumbPanel.revalidate()
+                breadcrumbPanel.repaint()
+                breadcrumbPanel.setVisible(true)
+                return
+            }
+            
+            // ====== ادامه کد قبلی برای نمایش بریدکرامپ عادی ======
             int maxNodes = 5
             int start = Math.max(0, displayPath.size() - maxNodes)
             JPanel tempPanel = new JPanel()
@@ -3265,7 +4527,7 @@ class SimpleMapCrawler {
         }
         breadcrumbPanel.revalidate()
         breadcrumbPanel.repaint()
-        breadcrumbPanel.setVisible(true)
+        breadcrumbPanel.setVisible(true) // همیشه قابل مشاهده
     }
 
     private void showNodeDetails(int row) {
@@ -3470,6 +4732,9 @@ class SimpleMapCrawler {
         Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
         if (node != null) {
             try {
+                // قبل از رفتن به گره، ردیف انتخاب شده را ذخیره کن تا بعداً به آن برگردیم
+                int currentRow = row
+                
                 ScriptUtils.c().select(node)
                 def mapFile = node.mindMap.file
                 if (mapFile) {
@@ -3480,6 +4745,10 @@ class SimpleMapCrawler {
                         void run() {
                             if (resultsTable != null && resultsTable.isShowing()) {
                                 resultsTable.requestFocusInWindow()
+                                // دوباره همان ردیف رو انتخاب کن
+                                if (currentRow < resultsTable.getRowCount()) {
+                                    resultsTable.setRowSelectionInterval(currentRow, currentRow)
+                                }
                             }
                         }
                     })
@@ -3926,13 +5195,19 @@ class SimpleMapCrawler {
     private void populatePreview(Node node) {
         if (node == null) {
             clearPreview()
+            removeMapNodeRow()
             return
         }
+        
+        // ====== اضافه کردن ردیف جدید در بالای جدول ======
+        addMapNodeRow(node)
+        // ================================================
+        
         if (leftPreviewPanel != null && !leftPreviewPanel.isVisible() && !hidePreviewPanel) {
             leftPreviewPanel.setVisible(true)
             if (innerSplitPane != null) innerSplitPane.setDividerLocation(0.35)
         }
-
+    
         NodeModel nodeModel = getNodeModel(node)
         String styleName = node.getStyle()?.getName()
         if (styleName) {
@@ -3943,14 +5218,14 @@ class SimpleMapCrawler {
         } else {
             styleLabel.setText("")
         }
-
+    
         tagViewer.removeAll()
         def icons = iconController().getIcons(nodeModel, StyleOption.FOR_UNSELECTED_NODE)
         def tags = iconController().getTagIcons(nodeModel)
         icons.each { tagViewer.add(new JLabel(it.getIcon())) }
         tags.each { tagViewer.add(new JLabel(it)) }
         tagViewer.revalidate(); tagViewer.repaint()
-
+    
         Font useFontCore = (fontPreviewCore != null) ? fontPreviewCore : previewCore.getFont()
         String coreRaw = node.getHtmlText() ?: node.getPlainText()
         String styledCore = getStyledCellContent(coreRaw, node, useFontCore, true, 0)
@@ -3962,21 +5237,21 @@ class SimpleMapCrawler {
             previewCore.setBackground(UIManager.getColor("Panel.background"))
         }
         previewCore.setOpaque(true)
-
+    
         Font detailsFont = (fontPreviewDetails != null) ? fontPreviewDetails : previewDetails.getFont()
         String detailsRaw = node.getDetails()?.getHtml() ?: node.getDetails()?.getPlain() ?: ""
         String styledDetails = getStyledCellContent(detailsRaw, node, detailsFont, true, 0)
         previewDetails.setText("<html>${styledDetails}</html>")
         previewDetails.setBackground(nodeBg != null ? nodeBg : UIManager.getColor("Panel.background"))
         previewDetails.setOpaque(true)
-
+    
         Font noteFont = (fontPreviewNote != null) ? fontPreviewNote : previewNote.getFont()
         String noteRaw = node.getNote()?.getHtml() ?: node.getNote()?.getPlain() ?: ""
         String styledNote = getStyledCellContent(noteRaw, node, noteFont, true, 0)
         previewNote.setText("<html>${styledNote}</html>")
         previewNote.setBackground(nodeBg != null ? nodeBg : UIManager.getColor("Panel.background"))
         previewNote.setOpaque(true)
-
+    
         breadcrumbPanel.removeAll()
         try {
             def fullPath = node.getPathToRoot()
