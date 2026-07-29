@@ -1,30 +1,44 @@
-// @ExecutionModes({ON_SINGLE_NODE="/main_menu/i-plasm/Search-Filter-Associations"})
+// @ExecutionModes({ON_SINGLE_NODE="/main_menu/aaa"})
 
-// Modified by aaa1386 2026 https://github.com/aaa1386
+//
+// Modified by aaa1386 (2026)
+// https://github.com/aaa1386
+//
+// Based on the original MapCrawler script by bbarbosa.
+// Extensively modified and extended.
+//
+// Original repository:
+// https://github.com/i-plasm/freeplane-scripts
+//
+// Original script:
+// https://github.com/i-plasm/freeplane-scripts/blob/main/src/scripts/mapCrawler.groovy
 
+//package scripts
 /*
- * Info & Discussion: https://github.com/freeplane/freeplane/discussions/2344
+ * MapCrawler: Freeplane tool for searching across different map scopes
+ * and quick inspection of results.
+ *
+ * Info & Discussion:
+ * https://github.com/freeplane/freeplane/discussions/2344
  *
  * Last Update: 2025-03-17
  *
- * ---------
- *
- * MapCrawler: Freeplane tool for searching across different map scopes, and quick inspection of results
- *
  * Copyright (C) 2025 bbarbosa
+ * Copyright (C) 2026 aaa1386
  *
- * This program is free software: you can redistribute it and/or modify it under the terms of the
- * GNU General Public License as published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
- * even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along with this program. If
- * not, see <https://www.gnu.org/licenses/>.
- *
- *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 
