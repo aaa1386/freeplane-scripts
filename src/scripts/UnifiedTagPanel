@@ -611,6 +611,8 @@ void restoreViewState() {
 
     Object expanded = state.expanded
     if (expanded instanceof Collection) expandedQns.addAll((Collection<String>) expanded)
+    // a restored state is deliberate — do NOT fall into the "first opening expands
+    // everything" branch, even when the user had collapsed the whole tree
     firstBuildDone = true
 
     hideUnusedTags = state.hideUnused as boolean
@@ -619,22 +621,30 @@ void restoreViewState() {
     String text = String.valueOf(state.filter ?: "")
     if (!text.isEmpty()) {
         filterField.setText(text)
+        // adopt it directly: the refreshTree in main already builds with this filter, and
+        // the debounce that setText armed then finds nothing new to apply
         filterText = text.trim()
     }
 }
 
+// The MapViewPane, when it is really there. Recognised by name so the script does not have
+// to import a package that is not part of the scripting API; falls back to the scroll pane
+// (the old, flicker-prone spot) if Freeplane ever changes the hierarchy.
 Container resolveOverlayHost() {
     Container parent = boundScrollPane.getParent()
     if (parent != null && parent.getClass().getSimpleName() == "MapViewPane") return parent
     return boundScrollPane
 }
 
+// bounds of a component of the host, expressed in the SCROLL PANE's coordinates — which is
+// what the viewport's reserved-area logic expects (it subtracts the viewport's own x/y)
 Rectangle boundsInScrollPane(Component component) {
     Rectangle bounds = component.getBounds()
     if (overlayHost.is(boundScrollPane)) return bounds
     return SwingUtilities.convertRectangle(overlayHost, bounds, boundScrollPane)
 }
 
+// viewport rectangle in the HOST's coordinates, so the panel can be pinned to its edges
 Rectangle viewportBoundsInHost() {
     Rectangle bounds = boundScrollPane.getViewport().getBounds()
     if (overlayHost.is(boundScrollPane)) return bounds
@@ -1193,7 +1203,7 @@ JPanel createFilterBox() {
     filterModeButton.addActionListener({ ActionEvent e -> applyFilterHides(!isFilterHides()) } as ActionListener)
 
     // Place buttons
-JPanel buttons = transparentPanel(new GridLayout(1, 2, 0, 0))
+    JPanel buttons = transparentPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0))
     buttons.add(filterModeButton)
     buttons.add(clearButton)
 
@@ -1644,6 +1654,10 @@ JComponent createTreeArea() {
                 TagRow row = rowOf(path)
                 if (row != null && !row.synthetic) {
                     tagTree.setSelectionPath(path)
+                    // ===== فوکوس خودکار روی جدول =====
+                    if (!tagTree.hasFocus()) {
+                        tagTree.requestFocusInWindow()
+                    }
                 }
             }
         }
@@ -1715,7 +1729,16 @@ JComponent createTreeArea() {
     treeScrollPane.setBorder(BorderFactory.createEmptyBorder())
 treeScrollPane.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
 
+    // ===== MouseListener برای اسکرول پن (فوکوس خودکار هنگام ورود ماوس) =====
     treeScrollPane.addMouseListener(new MouseAdapter() {
+        @Override
+        void mouseEntered(MouseEvent e) {
+            // ===== وقتی ماوس وارد اسکرول پن می‌شود، فوکوس به جدول =====
+            if (tagTree != null && !tagTree.hasFocus()) {
+                tagTree.requestFocusInWindow()
+            }
+        }
+        
         @Override
         void mousePressed(MouseEvent e) {
             if (tagTree != null) {
@@ -1724,7 +1747,16 @@ treeScrollPane.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
         }
     })
 
+    // ===== MouseListener برای ویوپورت (فوکوس خودکار هنگام ورود ماوس) =====
     treeScrollPane.getViewport().addMouseListener(new MouseAdapter() {
+        @Override
+        void mouseEntered(MouseEvent e) {
+            // ===== وقتی ماوس وارد ویوپورت می‌شود، فوکوس به جدول =====
+            if (tagTree != null && !tagTree.hasFocus()) {
+                tagTree.requestFocusInWindow()
+            }
+        }
+        
         @Override
         void mousePressed(MouseEvent e) {
             if (tagTree != null) {
@@ -4663,3 +4695,4 @@ JRootPane findMainRootPane() {
  End of Utilities
  ============================================================================
 */
+
