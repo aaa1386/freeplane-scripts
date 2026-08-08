@@ -1203,7 +1203,8 @@ JPanel createFilterBox() {
     filterModeButton.addActionListener({ ActionEvent e -> applyFilterHides(!isFilterHides()) } as ActionListener)
 
     // Place buttons
-    JPanel buttons = transparentPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0))
+       
+    JPanel buttons = transparentPanel(new GridLayout(1, 2, 0, 0))
     buttons.add(filterModeButton)
     buttons.add(clearButton)
 
