@@ -1,5490 +1,4698 @@
-// @ExecutionModes({ON_SINGLE_NODE="/main_menu/aaa"})
+/*MODIFICATIONS & ENHANCEMENTS BY: aaa1386 (Github)
+ORIGINAL CODE BY: euu2021 (Github)
+ Copyright (C) 2026  aaa1386 (Github) - based on euu2021's original work
+SPDX-License-Identifier: GPL-2.0-or-later
 
-// Modified by aaa1386 (2026)
-// https://github.com/aaa1386
-//
-// Based on the original MapCrawler script by bbarbosa.
-// Extensively modified and extended.
-//
-// Original repository:
-// https://github.com/i-plasm/freeplane-scripts
-//
-// Original script:
-// https://github.com/i-plasm/freeplane-scripts/blob/main/src/scripts/mapCrawler.groovy
+Added:
+1-Add 🔀 Merge/Assign option, 
+2-Add ⚡ Add Child Tag (Fast)option,
+3-Add 📍 Locate Tag option
+4-Merged Edit Mode and Assign Mode into a single unified interaction mode.
+5-Assigning Ctrl+Up/Down for Navigating Search Results
 
-//package scripts
-/*
- * MapCrawler: Freeplane tool for searching across different map scopes
- * and quick inspection of results.
- *
- * Info & Discussion:
- * https://github.com/freeplane/freeplane/discussions/2344
- *
- * Last Update: 2025-03-17
- *
- * Copyright (C) 2025 bbarbosa
- * Copyright (C) 2026 aaa1386
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see
- * <https://www.gnu.org/licenses/>.
- */
+The ⚡ Add Child (Fast) option is especially useful for large maps with many nodes because it creates new tags without the delay experienced by the standard Add Child Tag (Insert) method, which can become noticeably slower on large maps.
+*/
 
+// Copyright (c) 2026 euu2021
+// SPDX-License-Identifier: GPL-2.0-or-later
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 2 of the License, or
+// (at your option) any later version.
+
+
+// @ExecutionModes({ON_SINGLE_NODE="/menu_bar/euu/tags"})
+
+
+/***************************************************************************
+
+ Unified Tag Panel — "one tag panel to rule them all".
+
+ Discussion threads: https://github.com/freeplane/freeplane/discussions/2953 (announcement) · https://github.com/freeplane/freeplane/issues/2926 · https://github.com/freeplane/freeplane/discussions/2257
+
+ One overlay panel that unifies Freeplane's three tag interfaces:
+   1. the Tags side panel (view + filter + assign),
+   2. the "Edit node tags" dialog (keyboard-first assign/create on the selected nodes),
+   3. the "Manage tag categories" dialog (rename / move / delete / color the hierarchy).
+
+ Everything goes through the PUBLIC scripting API:
+   - reading:   mindMap.tagCategories.read()  (tree, colors, separator, revision)
+   - node tags: node.tags.add/remove          (registers unknown tags on the map)
+   - structure: mindMap.tagCategories.edit(MapTagCategoryInstructionRequest)
+                (each edit = one undo step; node tags are rewritten along)
+
+ The panel is an overlay on the map (like SearchPanel.groovy), anchored to the
+ TOP-RIGHT corner of the tab — SearchPanel owns the top-left. By default it attaches to
+ the tab it was launched on and stays there; turn on "Show on every tab" in Options… and
+ the SAME panel moves to whatever tab becomes active, so it is always on screen.
+
+ Usage:
+   - launch the script       -> TOGGLES the panel on the current map: opens it (with the
+                                focus already in the filter field), or hides it if it is
+                                open. Hiding remembers the expansion, the filter text and
+                                the wide/edit modes, so showing it again resumes where you
+                                were. Bind it to a shortcut to flick the panel in and out.
+   - type in the field       -> live search, accent-insensitive, with the typed text
+                                HIGHLIGHTED inside every row that carries it
+   - ▼ / ▽ next to the field -> the two search modes of issue #2926: ▼ filters (the tags
+                                that do not match are hidden, matches auto-expand) and ▽
+                                only highlights (nothing is hidden, the structure and the
+                                scroll position stay put, and just the paths leading to a
+                                match are opened). ▼ is the default.
+   - ENTER in the field      -> assigns the best match to the selected node(s);
+                                if nothing matches, CREATES the typed tag (use :: for
+                                categories) and assigns it — the Edit-Tags workflow
+   - Ctrl+ENTER              -> always creates the typed tag, even if something matches
+   - ↑ / ↓ in the field      -> walk the tag-tree selection without leaving the field,
+                                stopping ONLY on tags that match what was typed: the
+                                ancestor categories drawn above a nested match are skipped.
+                                Under a filter the selection starts on the first match, so
+                                what ENTER will assign is always visible.
+   - click a tag             -> toggles it on the selected node(s)  [✓ = on all,
+                                ◐ = on some]. Clicks on the expand handle still fold.
+   - favorites strip         -> the row of chips under the filter field: the tags pinned
+                                in THIS map. Click a chip to toggle it on the selected
+                                node(s); right-click for assign/remove, reorder, show in
+                                the tree, or unpin. Pin a tag from its context menu in the
+                                tree (★), or by dragging it onto the strip in edit mode.
+                                Favorites are stored IN THE MAP FILE (mindMap.storage),
+                                the same place and lifecycle as the tags themselves, and
+                                they follow the tags through renames and moves made here.
+   - ✎ on the title bar      -> EDIT MODE: clicks only select (no toggling), so the
+                                hierarchy can be reorganized without side effects; and
+                                DRAG & DROP reorganizes the tree — drop ON a tag to nest
+                                under it, BETWEEN tags to position among siblings, on the
+                                uncategorized bucket to uncategorize a leaf, or drag an
+                                uncategorized tag into the tree to categorize it
+                                (drag is disabled while a filter is active)
+   - Alt+↑/↓                 -> move tag among siblings   (field or tree focused)
+   - Alt+←                   -> promote (become sibling of its parent)
+   - Alt+→                   -> demote (become child of the previous sibling)
+   - F2                      -> rename inline (tree focused)
+   - Insert                  -> add child tag (tree focused)
+   - Delete pressed twice    -> delete the tag from the map (the key arms on the first
+                                press so a stray Delete costs nothing; the context menu's
+                                Delete acts at once — picking it is already deliberate) (tree focused)
+   - Sort by usage           -> a second ordering, off by default (the normal one is the
+                                map's own tag tree). Turned on from the context menu, the
+                                category NESTING disappears: every tag becomes one row,
+                                labelled with its qualified name, most used first. Handy to
+                                see what you actually use; reordering (Alt+arrows, drag) is
+                                off while it is on, since the rows are no longer siblings.
+   - usage counts            -> each tag shows how many nodes carry it: "urgent (5)".
+                                A category with subtags shows "own/whole category" —
+                                "work (2/17)". A tag nobody uses shows (0) and is painted
+                                faded, so it is safe to prune. The counts update live.
+   - right-click             -> context menu: assign/remove, favorites, rename, add child,
+                                delete, set/reset color, move ops, filter the MAP
+                                by the tag (with folding restored on clear), the
+                                usage commands "Hide unused tags" / "Delete all unused
+                                tags", and the "Close after insert" option
+   - Show on every tab       -> OFF by default. On, the panel moves to the tab you switch
+                                to (one panel, one state — not a copy per tab), reloading
+                                the tags and the favorites of the map it lands on.
+   - Close after insert      -> ON by default: assigning a tag hides the panel and hands
+                                the focus back to the map, so the whole gesture is
+                                trigger → type → ENTER. Removing a tag never closes it.
+                                It is a PROFILE preference (it has to outlive the panel it
+                                closes), shared by every map, and it is remembered.
+   - « on the title bar      -> pin the panel wide, ignoring hover (it grows leftwards,
+                                since the panel hangs on the right edge); » restores it
+   - ✕ / ESC                 -> close (also clears the map filter it applied)
+
+ *****************************************************************/
 import groovy.transform.Field
-import java.awt.*
-import org.freeplane.features.map.clipboard.MapClipboardController
-import org.freeplane.features.map.NodeModel
-import java.awt.Toolkit
-import java.awt.datatransfer.Transferable
-import java.awt.event.*
-import java.beans.PropertyChangeListener
-import java.beans.PropertyChangeEvent
-import java.io.*
-import org.freeplane.features.clipboard.ClipboardController
-import org.freeplane.features.map.MapController
-import org.freeplane.features.mode.Controller
-import javax.swing.*
-import javax.swing.table.*
-import javax.swing.border.Border
-import javax.swing.event.*
-import java.awt.datatransfer.*
-import org.freeplane.core.ui.components.UITools
-import org.freeplane.core.util.MenuUtils
-import org.freeplane.plugin.script.proxy.ScriptUtils
-import org.freeplane.api.Node
+
+import org.freeplane.api.MapTagCategoryInstruction
+import org.freeplane.api.MapTagCategoryInstructionRequest
+import org.freeplane.api.MapTagCategoryInstructionType
+import org.freeplane.api.MapTagTargetLocation
 import org.freeplane.core.resources.ResourceController
-import org.freeplane.core.ui.components.TagIcon
-import org.freeplane.features.icon.NamedIcon
-import org.freeplane.features.icon.IconController
-import org.freeplane.features.icon.mindmapmode.MIconController
-import org.freeplane.features.mode.mindmapmode.MModeController
-import org.freeplane.plugin.script.proxy.MapProxy
+import org.freeplane.core.ui.components.UITools
+import org.freeplane.core.util.HtmlUtils
+import org.freeplane.features.filter.Filter
+import org.freeplane.features.filter.FilterController
+import org.freeplane.features.filter.condition.ICondition
+import org.freeplane.features.icon.Tag
+import org.freeplane.features.icon.TagCategories
+import org.freeplane.features.icon.Tags as CoreTags
+import org.freeplane.features.map.IMapSelection
+import org.freeplane.features.map.IMapChangeListener
+import org.freeplane.features.map.INodeChangeListener
+import org.freeplane.features.map.INodeSelectionListener
+import org.freeplane.features.map.MapChangeEvent
+import org.freeplane.features.map.MapModel
+import org.freeplane.features.map.NodeChangeEvent
+import org.freeplane.features.map.NodeDeletionEvent
 import org.freeplane.features.map.NodeModel
-import org.freeplane.core.util.TextUtils
-import java.util.zip.CRC32
-import java.nio.charset.StandardCharsets
-import java.util.regex.Pattern
-import java.util.regex.Matcher
-import org.freeplane.core.ui.components.HSLColorConverter
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.concurrent.ConcurrentHashMap
+import org.freeplane.features.icon.IconController
+import org.freeplane.features.mode.Controller
+import org.freeplane.features.ui.IMapViewChangeListener
+import org.freeplane.plugin.script.proxy.ProxyFactory
+import org.freeplane.view.swing.map.MapView
+import org.freeplane.view.swing.map.MapViewScrollPane
+
+import javax.swing.event.ChangeListener
+
+import javax.swing.*
+import javax.swing.event.CellEditorListener
+import javax.swing.event.ChangeEvent
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
+import javax.swing.event.PopupMenuEvent
+import javax.swing.event.PopupMenuListener
+import javax.swing.event.TreeExpansionEvent
+import javax.swing.event.TreeExpansionListener
+import javax.swing.tree.DefaultMutableTreeNode
+import javax.swing.tree.DefaultTreeModel
+import javax.swing.tree.TreeCellRenderer
+import javax.swing.tree.TreePath
+import javax.swing.tree.TreeSelectionModel
+
+import java.awt.*
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.Transferable
+import java.awt.datatransfer.UnsupportedFlavorException
+import java.awt.event.*
+
+// after java.awt.*: without this, List becomes java.awt.List, which is not generic
 import java.util.List
-import java.util.ArrayList
-import java.util.Deque
-import java.util.ArrayDeque
-import javax.swing.plaf.basic.BasicSplitPaneUI
-import javax.swing.plaf.basic.BasicSplitPaneDivider
-import org.freeplane.features.nodestyle.NodeStyleController
-import org.freeplane.features.styles.LogicalStyleController.StyleOption
 
 
-//↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Main singleton instance ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ User settings ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
 
-@Field static SimpleMapCrawler mapCrawler
+// Merge panel variables
+@Field JDialog mergePanel = null
+@Field JTextField sourceField = null
+@Field JTextField targetField = null
+@Field JButton mergeButton = null
+@Field JComboBox<String> modeCombo = null
 
-if (mapCrawler == null) {
-    mapCrawler = new SimpleMapCrawler()
-    mapCrawler.toggle()
+@Field boolean isMergePanelOpen = false
+@Field int selectionStep = 1
+@Field String panelTextFontName = "Dialog"
+@Field int panelTextFontSize = 25
+
+@Field int retractedWidthFactor = 20
+@Field int expandedWidthFactor = 4
+@Field int wideWidthPercent = 40
+
+@Field int retractDelayMs = 400
+@Field int refreshCoalesceMs = 150
+// Rebuilding the tree costs ~1 ms per row (MEASURED: ~9 ms for 9 rows, ~45 ms for 54),
+// so rebuilding on every keystroke makes typing lag on a map with many tags. This waits
+// for a short pause instead. ENTER never waits — it flushes the pending rebuild first.
+@Field int filterDebounceMs = 120
+
+// expand/retract transition, ease-out; 0 or 1 = no animation. Skipped above the row cap.
+@Field int resizeAnimationSteps = 4
+@Field int resizeAnimationStepMs = 15
+@Field int resizeAnimationMaxRows = 80
+
+//@Field TagRow hoveredRow = null
+
+@Field int titleBarHeight = 35
+@Field String titleBarText = "Tags"
+
+// Usage count next to each tag (issue #2948): "urgent (5)". A category that has subtags
+// shows "own/whole category" — "work (2/17)" = 2 nodes tagged exactly work, 17 nodes in
+// the category counting the subtags. A tag nobody uses shows (0) and is painted faded.
+@Field boolean showUsageCounts = true
+@Field boolean showCategoryTotals = true
+// faded look of an unused tag: how far its chip color is pulled toward the map background
+@Field float unusedTagFadeRatio = 0.42f
+
+// Highlight of the typed text inside each row (#2926). Amber with black text: the chip
+// underneath can be any color, so the pair has to carry its own contrast.
+@Field String matchHighlightHex = "#ffd54f"
+// the toggle next to the filter field: filled = hiding what does not match, hollow = only
+// highlighting
+@Field String filterHidesSymbol = "▼"
+@Field String highlightOnlySymbol = "▽"
+
+// favorites strip (below the filter field): gaps between chips and around the rows
+@Field int favoritesGapX = 4
+@Field int favoritesGapY = 3
+// the panel is anchored to the RIGHT edge, so it grows LEFTWARDS: « widens, » restores
+// (mirror image of a left-anchored panel like SearchPanel)
+@Field String wideOffSymbol = "«"
+@Field String wideOnSymbol = "»"
+@Field String closeButtonSymbol = "✕"
+@Field String clearButtonSymbol = "⌫"
+@Field int widthOfTheClearButton = 40
+
+@Field String filterFieldPlaceholder = "Filter or create…"
+
+// opaque background of the bars (see SearchPanel for the forbidden gray band)
+@Field Color barColor = new Color(0x50, 0x50, 0x50)
+// edit-mode button background while the mode is ON
+@Field Color editModeOnColor = new Color(0xc6, 0x8a, 0x00)
+
+@Field int panelBorderThickness = 1
+@Field int panelBorderOpacity = 150
+
+// what the map filter keeps visible besides the tagged nodes themselves
+@Field boolean showTagFilterDescendants = false
+
+// delete needs a second press within this window
+@Field int deleteArmMs = 4000
+
+// "Close after insert": hide the panel as soon as a tag is assigned, so trigger → type →
+// ENTER ends back in the map with no extra gesture. Toggled from the context menu.
+// Default ON. Removing a tag never closes — the option is about INSERTING.
+@Field boolean closeAfterInsertDefault = true
+
+// Colour given to a tag CREATED IN THIS PANEL (issue #2950), chosen in Options…:
+//   "default" — Freeplane decides, deriving the colour from the name (what it has always
+//               done here; kept as the factory setting so nothing changes unasked)
+//   "inherit" — take the colour of the nearest ancestor category that already exists
+//   "fixed"   — always the colour picked in the dialog
+@Field String newTagColorModeDefault = "default"
+// only used by "fixed", and as the last resort of "inherit" when a colour was ever picked
+@Field String newTagColorFallback = "#3366cc"
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ User settings ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+@Field JDialog fastChildPanel = null
+@Field JTextField fastParentField = null
+@Field JButton fastAddButton = null
+@Field JLabel fastStatusLabel = null
+@Field boolean fastChildPanelOpen = false
+@Field boolean fastWaitingForParent = false
+@Field int fastRemoveDelayMs = 1
+@Field JTextField fastChildNameField = null
+
+@Field final String PANEL_NAME = "UnifiedTagPanel"
+@Field final String FILTER_FIELD_NAME = "UnifiedTagPanelField"
+@Field final String FAVORITES_STRIP_NAME = "UnifiedTagPanelFavorites"
+// Favorites live in the MAP, exactly like the tags themselves: mindMap.storage is
+// serialized into the .mm (verified: the attribute lands next to the <tags> element and
+// survives save → close → reopen). A favorite names a tag OF THIS MAP, so a
+// profile-global list — what the old TagFavoritesPanel used — would be meaningless here.
+@Field final String FAVORITES_KEY = "unifiedTagPanel.favorites"
+// PROFILE property, not map storage and not the view state: the option closes the panel,
+// so it has to outlive it — and it is a preference about how the panel behaves, which has
+// no business inside the user's .mm.
+@Field final String CLOSE_AFTER_INSERT_KEY = "unifiedTagPanel.closeAfterInsert"
+// Colour policy for tags created HERE (issue #2950). It is a policy of THIS panel: a tag
+// born in Freeplane's own "Edit node tags", in a drag onto a node or in another script
+// keeps Freeplane's behaviour. Hooking the app's tag creation globally is exactly what we
+// are NOT doing — it would mean fighting the application on every version.
+@Field final String NEW_TAG_COLOR_MODE_KEY = "unifiedTagPanel.newTagColorMode"
+@Field final String NEW_TAG_COLOR_KEY = "unifiedTagPanel.newTagColor"
+@Field final String SHOW_USAGE_COUNTS_KEY = "unifiedTagPanel.showUsageCounts"
+// Second sorting mode (issue #2948 asked for it; it only became safe once the design said
+// the hierarchy DISAPPEARS in this mode — with no tree on screen there is no manual order
+// for a usage order to contradict). Off by default: the normal, hierarchical sort.
+@Field final String SORT_BY_USAGE_KEY = "unifiedTagPanel.sortByUsage"
+// "Show on every tab": ONE panel that moves to whatever tab is active, rather than one
+// panel per tab. Same result for the stated purpose (it is always on screen), one set of
+// state, no duplicated listeners. ⚠️ In a SPLIT view only the focused view carries it.
+@Field final String FOLLOW_TABS_KEY = "unifiedTagPanel.followTabs"
+// Filter vs highlight-only, the two search modes asked for in issue #2926 (comment
+// 5073663796). ON (default) = what typing has always done here: the tags that do not match
+// are hidden. OFF = nothing is hidden, the whole structure stays put and the matches are
+// merely highlighted — which keeps the surrounding context and the scroll position.
+@Field final String FILTER_HIDES_KEY = "unifiedTagPanel.filterHides"
+@Field final String OPTIONS_DIALOG_KEY = "UnifiedTagPanelOptionsDialog"
+@Field final String CLOSE_HANDLE_KEY = "UnifiedTagPanelCloseHandle"
+@Field final String SUPPLIER_KEY = "UnifiedTagPanelSupplier"
+// What the panel looked like when it was last hidden. Lives on the scroll pane (per tab),
+// which outlives the panel — the @Fields do not.
+@Field final String VIEW_STATE_KEY = "UnifiedTagPanelViewState"
+
+@Field MapView boundMapView
+@Field MapViewScrollPane boundScrollPane
+// Where the overlay actually hangs. NOT the scroll pane: that one reports
+// isOptimizedDrawingEnabled() == true, i.e. it promises Swing that its children never
+// overlap — a promise we break the moment we put a panel over the viewport, and Swing then
+// feels free to repaint the viewport alone, wiping us off the screen for a frame (the
+// flicker seen with the Map Overview turned OFF; the overview being visible happened to
+// mask it). Its PARENT, Freeplane's own MapViewPane, is the sanctioned overlay host:
+// `isOptimizedDrawingEnabled() { return false; } // enable overlap`, and its layout ignores
+// children added without constraints — which is exactly how the Map Overview itself hangs.
+@Field Container overlayHost
+
+@Field JPanel tagPanel
+@Field JPanel favoritesStrip
+@Field JTextField filterField
+@Field Color filterFieldDefaultBackground
+@Field JTree tagTree
+@Field DefaultMutableTreeNode treeRootNode
+@Field JScrollPane treeScrollPane
+@Field JLabel statusLabel
+@Field JButton wideButton
+
+@Field JButton filterModeButton
+@Field DefaultCellEditor treeCellEditor
+@Field JTextField renameEditorField
+
+// Click Locator variables
+@Field final String CLICK_LOCATOR_KEY = "UnifiedTagPanelClickLocator"
+@Field AWTEventListener tagClickLocatorListener = null
+
+@Field Timer retractTimer
+@Field Timer resizeAnimationTimer
+@Field Timer refreshTimer
+@Field Timer filterDebounceTimer
+@Field MouseListener hoverListener
+@Field ComponentListener viewportListener
+@Field Object reservedAreaSupplier
+@Field Object selectionRelay
+@Field Object mapChangeRelay
+@Field Object nodeChangeRelay
+@Field Object viewChangeRelay
+
+@Field boolean wideMode = false
+@Field boolean editMode = false
+@Field boolean mouseOverPanel = false
+@Field boolean popupOpen = false
+
+@Field String filterText = ""
+// expansion memory across rebuilds, keyed by qualified name (the tree object is replaced)
+@Field final Set<String> expandedQns = new LinkedHashSet<String>()
+@Field boolean firstBuildDone = false
+
+// assignment markers for the current node selection (qualified names)
+@Field final Set<String> assignedAll = new HashSet<String>()
+@Field final Set<String> assignedSome = new HashSet<String>()
+
+// favorite tags of THIS map, in user order (qualified names)
+@Field final List<String> favorites = new ArrayList<String>()
+
+// Usage counts (issue #2948). directUsage = nodes carrying EXACTLY this tag;
+// categoryUsage = nodes anywhere in the category (the tag itself or any subtag), each
+// node counted once. MEASURED at ~50 ms over 22k nodes, so this is cached and only
+// recomputed when something can have changed it — never on a filter keystroke.
+@Field Map<String, Integer> directUsage = new HashMap<String, Integer>()
+@Field Map<String, Integer> categoryUsage = new HashMap<String, Integer>()
+@Field boolean usageCountsStale = true
+@Field boolean hideUnusedTags = false
+
+@Field boolean locateFromMap = false
+@Field String armedDeleteQn = null
+@Field long armedDeleteAt = 0L
+
+// row being renamed via F2 (the cell editor commits into it)
+@Field Object renamingRow = null
+@Field boolean selectionFromMap = false
+@Field final String LISTENER_KEY = "UnifiedTagPanelClickLocator"
+@Field AWTEventListener clickLocatorListener = null
+
+// row being dragged (edit mode only); the flavor marks our own transfers
+@Field Object draggedRow = null
+@Field DataFlavor tagDndFlavor
+
+// map filter state (same restore-the-folding contract as SearchPanel)
+@Field boolean mapFilterActive = false
+@Field final Set<NodeModel> nodesUnfoldedByFilter = new LinkedHashSet<NodeModel>()
+
+@Field Font cachedItemFont
+@Field final Map<Character, Character> accentFoldCache = new java.util.concurrent.ConcurrentHashMap<Character, Character>()
+
+@Field String markAll = "✓"
+@Field String markSome = "◐"
+@Field String favoriteSymbol = "★"
+
+
+// Row payload for the tree. Top-level class: keep it dumb (no access to script methods).
+class TagRow {
+    String name            // leaf segment (or header text for synthetic rows)
+    String qualifiedName   // full qualified content; null for synthetic rows
+    List<String> path      // qualified segments; null for synthetic rows
+    String colorHex        // #rrggbbaa from the API; may be null
+    boolean uncategorized  // item of the uncategorized bucket
+    boolean synthetic      // root / section header: not a tag
+    String toString() { name }
+}
+
+// FlowLayout reports the preferred size of a SINGLE row, so wrapped rows get clipped in a
+// narrow panel. This measures the rows for real. (Same implementation the user's
+// TagFavoritesPanel carries; every Dimension read is cast because Groovy resolves
+// .width/.height to the double-returning getters.)
+class WrapLayout extends FlowLayout {
+    WrapLayout(int align, int hgap, int vgap) { 
+        super(align, hgap, vgap)
+        // remove setComponentOrientation - this method does not exist in FlowLayout
+    }
+
+    @Override
+    Dimension preferredLayoutSize(Container target) { return layoutSize(target, true) }
+
+    @Override
+    Dimension minimumLayoutSize(Container target) {
+        Dimension minimum = layoutSize(target, false)
+        return new Dimension((int) minimum.width - (getHgap() + 1), (int) minimum.height)
+    }
+
+    private Dimension layoutSize(Container target, boolean preferred) {
+        synchronized (target.getTreeLock()) {
+            // during the first layout the target has no width yet: walk up until some
+            // ancestor does, else assume unbounded (a single row) for this pass
+            Container container = target
+            int available = (int) container.getSize().width
+            while (available == 0 && container.getParent() != null) {
+                container = container.getParent()
+                available = (int) container.getSize().width
+            }
+            if (available == 0) available = Integer.MAX_VALUE
+
+            Insets insets = target.getInsets()
+            int horizontalOverhead = insets.left + insets.right + getHgap() * 2
+            int maxWidth = available - horizontalOverhead
+
+            int totalWidth = 0
+            int totalHeight = 0
+            int rowWidth = 0
+            int rowHeight = 0
+
+            for (int i = 0; i < target.getComponentCount(); i++) {
+                Component member = target.getComponent(i)
+                if (!member.isVisible()) continue
+                Dimension size = preferred ? member.getPreferredSize() : member.getMinimumSize()
+                int memberWidth = (int) size.width
+                int memberHeight = (int) size.height
+
+                if (rowWidth != 0 && rowWidth + getHgap() + memberWidth > maxWidth) {
+                    totalWidth = Math.max(totalWidth, rowWidth)
+                    totalHeight += rowHeight + getVgap()
+                    rowWidth = 0
+                    rowHeight = 0
+                }
+                if (rowWidth != 0) rowWidth += getHgap()
+                rowWidth += memberWidth
+                rowHeight = Math.max(rowHeight, memberHeight)
+            }
+            totalWidth = Math.max(totalWidth, rowWidth)
+            totalHeight += rowHeight
+
+            return new Dimension(totalWidth + horizontalOverhead,
+                    totalHeight + insets.top + insets.bottom + getVgap() * 2)
+        }
+    }
+}
+
+class PanelSelectionRelay implements INodeSelectionListener {
+    Closure handler
+    @Override void onSelectionSetChange(IMapSelection selection) { handler.call() }
+}
+
+class PanelMapChangeRelay implements IMapChangeListener {
+    Closure handler
+    Closure structureHandler
+    @Override void mapChanged(MapChangeEvent event) { handler.call(event) }
+    // nodes coming and going change the usage counts without any tag event firing
+    @Override void onNodeDeleted(NodeDeletionEvent event) { structureHandler.call() }
+    @Override void onNodeInserted(NodeModel parent, NodeModel child, int newIndex) { structureHandler.call() }
+}
+
+class PanelNodeChangeRelay implements INodeChangeListener {
+    Closure handler
+    @Override void nodeChanged(NodeChangeEvent event) { handler.call(event) }
+}
+
+class PanelViewChangeRelay implements IMapViewChangeListener {
+    Closure handler
+    @Override void afterViewChange(Component oldView, Component newView) { handler.call(newView) }
+}
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Main code ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+boundMapView = Controller.currentController.mapViewManager.mapView as MapView
+if (boundMapView == null) return
+boundScrollPane = SwingUtilities.getAncestorOfClass(MapViewScrollPane, boundMapView) as MapViewScrollPane
+if (boundScrollPane == null) return   // view not anchored yet (mid map-switch); relaunch
+overlayHost = resolveOverlayHost()
+
+if (hidePanelIfOpen()) return
+
+// closer registered BEFORE any external listener exists — every listener below is
+// covered even if this run dies midway (the leak lesson from UtilityPanels)
+boundScrollPane.putClientProperty(CLOSE_HANDLE_KEY, { -> closePanel() })
+
+pickGlyphs()
+
+retractTimer = new Timer(retractDelayMs, { ActionEvent e -> fitPanelBounds() } as ActionListener)
+retractTimer.setRepeats(false)
+
+refreshTimer = new Timer(refreshCoalesceMs, { ActionEvent e -> refreshTree() } as ActionListener)
+refreshTimer.setRepeats(false)
+
+filterDebounceTimer = new Timer(filterDebounceMs, { ActionEvent e -> applyFilterText() } as ActionListener)
+filterDebounceTimer.setRepeats(false)
+
+loadPanelPreferences()
+createTagPanel()
+loadFavorites()
+restoreViewState()
+startListeners()
+refreshTree()
+updateAssignedMarks()
+
+return
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Main code ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Lifecycle ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+// The trigger is a TOGGLE: with the panel open it hides it, so one gesture shows and hides.
+// (Opening already puts the focus in the filter field, which is why the earlier "second
+// trigger refocuses / widens" behaviour was not worth the ambiguity.)
+//
+// "Healthy panel" = the component exists by name AND the closer exists in the client property.
+// Since the closer is registered BEFORE the listeners, that dual presence guarantees the
+// listeners are tracked. A panel by name WITHOUT a closer = leftover from an execution that
+// broke; in that case we purge and open a fresh one, instead of toggling a zombie.
+boolean hidePanelIfOpen() {
+    JPanel existingPanel = overlayHost.components.find { it.name == PANEL_NAME } as JPanel
+    Object closer = boundScrollPane.getClientProperty(CLOSE_HANDLE_KEY)
+
+    if (existingPanel != null && closer != null) {
+        closer.call()
+        return true
+    }
+
+    purgePanelArtifacts()
+    return false
+}
+
+void disposeOptionsDialog() {
+    Object dialog = boundScrollPane.getClientProperty(OPTIONS_DIALOG_KEY)
+    if (dialog instanceof JDialog) ((JDialog) dialog).dispose()
+    boundScrollPane.putClientProperty(OPTIONS_DIALOG_KEY, null)
+}
+
+void stashViewState() {
+    boundScrollPane.putClientProperty(VIEW_STATE_KEY, [
+            expanded  : new LinkedHashSet<String>(expandedQns),
+            wide      : wideMode,
+            hideUnused: hideUnusedTags,
+            filter    : filterField != null ? filterField.getText() : ""
+    ])
+}
+
+void restoreViewState() {
+    Object stashed = boundScrollPane.getClientProperty(VIEW_STATE_KEY)
+    if (!(stashed instanceof Map)) return
+    Map state = (Map) stashed
+
+    Object expanded = state.expanded
+    if (expanded instanceof Collection) expandedQns.addAll((Collection<String>) expanded)
+    // a restored state is deliberate — do NOT fall into the "first opening expands
+    // everything" branch, even when the user had collapsed the whole tree
+    firstBuildDone = true
+
+    hideUnusedTags = state.hideUnused as boolean
+    if (state.wide as boolean) toggleWideMode()
+
+    String text = String.valueOf(state.filter ?: "")
+    if (!text.isEmpty()) {
+        filterField.setText(text)
+        // adopt it directly: the refreshTree in main already builds with this filter, and
+        // the debounce that setText armed then finds nothing new to apply
+        filterText = text.trim()
+    }
+}
+
+// The MapViewPane, when it is really there. Recognised by name so the script does not have
+// to import a package that is not part of the scripting API; falls back to the scroll pane
+// (the old, flicker-prone spot) if Freeplane ever changes the hierarchy.
+Container resolveOverlayHost() {
+    Container parent = boundScrollPane.getParent()
+    if (parent != null && parent.getClass().getSimpleName() == "MapViewPane") return parent
+    return boundScrollPane
+}
+
+// bounds of a component of the host, expressed in the SCROLL PANE's coordinates — which is
+// what the viewport's reserved-area logic expects (it subtracts the viewport's own x/y)
+Rectangle boundsInScrollPane(Component component) {
+    Rectangle bounds = component.getBounds()
+    if (overlayHost.is(boundScrollPane)) return bounds
+    return SwingUtilities.convertRectangle(overlayHost, bounds, boundScrollPane)
+}
+
+// viewport rectangle in the HOST's coordinates, so the panel can be pinned to its edges
+Rectangle viewportBoundsInHost() {
+    Rectangle bounds = boundScrollPane.getViewport().getBounds()
+    if (overlayHost.is(boundScrollPane)) return bounds
+    return SwingUtilities.convertRectangle(boundScrollPane, bounds, overlayHost)
+}
+
+Component findByName(Container container, String name) {
+    for (Component component : container.components) {
+        if (name == component.getName()) return component
+        if (component instanceof Container) {
+            Component found = findByName((Container) component, name)
+            if (found != null) return found
+        }
+    }
+    return null
+}
+
+void purgePanelArtifacts() {
+    Object previousCloser = boundScrollPane.getClientProperty(CLOSE_HANDLE_KEY)
+    if (previousCloser != null) previousCloser.call()
+    disposeOptionsDialog()
+
+    overlayHost.components
+            .findAll { it.name == PANEL_NAME }
+            .each { overlayHost.remove(it) }
+    boundScrollPane.components
+            .findAll { it.name == PANEL_NAME }
+            .each { boundScrollPane.remove(it) }
+
+    Object leftoverSupplier = boundScrollPane.getClientProperty(SUPPLIER_KEY)
+    if (leftoverSupplier != null) {
+        boundScrollPane.removeReservedAreaSupplier(leftoverSupplier)
+        boundScrollPane.putClientProperty(SUPPLIER_KEY, null)
+    }
+    boundScrollPane.putClientProperty(CLOSE_HANDLE_KEY, null)
+
+    boundScrollPane.revalidate()
+    boundScrollPane.repaint()
+}
+
+boolean panelAlive() {
+    if (tagPanel == null) return false
+    try {
+        return Controller.currentController.mapViewManager.getMapViews().any { it.is(boundMapView) }
+    } catch (Throwable t) {
+        return boundScrollPane.isDisplayable()
+    }
+}
+
+boolean aliveOrDetach() {
+    if (panelAlive()) return true
+    detachGlobalListeners()
+    return false
+}
+
+void detachGlobalListeners() {
+    def mapController = Controller.currentModeController.mapController
+    if (selectionRelay != null) mapController.removeNodeSelectionListener(selectionRelay)
+    if (mapChangeRelay != null) mapController.removeMapChangeListener(mapChangeRelay)
+    if (nodeChangeRelay != null) mapController.removeNodeChangeListener(nodeChangeRelay)
+    if (viewChangeRelay != null) {
+        Controller.currentController.mapViewManager.removeMapViewChangeListener(viewChangeRelay)
+    }
+    selectionRelay = null
+    mapChangeRelay = null
+    nodeChangeRelay = null
+    viewChangeRelay = null
+}
+
+void closePanel() {
+    stashViewState()
+
+    retractTimer.stop()
+    refreshTimer.stop()
+    filterDebounceTimer.stop()
+    if (resizeAnimationTimer != null) {
+        resizeAnimationTimer.stop()
+        resizeAnimationTimer = null
+    }
+    if (tagTree != null && tagTree.isEditing()) tagTree.cancelEditing()
+    disposeOptionsDialog()
+
+    clearMapFilter(false)
+
+    detachGlobalListeners()
+
+    if (viewportListener != null) boundScrollPane.viewport.removeComponentListener(viewportListener)
+    viewportListener = null
+
+    if (reservedAreaSupplier != null) {
+        boundScrollPane.removeReservedAreaSupplier(reservedAreaSupplier)
+        reservedAreaSupplier = null
+    }
+
+    if (tagPanel != null) {
+        overlayHost.remove(tagPanel)
+        tagPanel = null
+    }
+    // Remove Click Locator
+    if (tagClickLocatorListener != null) {
+        Toolkit.getDefaultToolkit().removeAWTEventListener(tagClickLocatorListener)
+        tagClickLocatorListener = null
+    }
+    JRootPane anchor = findMainRootPane()
+    if (anchor != null) {
+        anchor.putClientProperty(CLICK_LOCATOR_KEY, null)
+    }
+
+    boundScrollPane.putClientProperty(CLOSE_HANDLE_KEY, null)
+    boundScrollPane.putClientProperty(SUPPLIER_KEY, null)
+
+    overlayHost.revalidate()
+    overlayHost.repaint()
+    boundMapView.requestFocusInWindow()
+}
+
+void startListeners() {
+    viewportListener = new ComponentAdapter() {
+        @Override
+        void componentResized(ComponentEvent e) { fitPanelBounds() }
+    }
+    boundScrollPane.viewport.addComponentListener(viewportListener)
+
+    def mapController = Controller.currentModeController.mapController
+
+    // Selection relay definition
+    selectionRelay = new PanelSelectionRelay(handler: { ->
+        if (aliveOrDetach()) {
+            updateAssignedMarks()
+        }
+    })
+    mapController.addNodeSelectionListener(selectionRelay)
+
+    mapChangeRelay = new PanelMapChangeRelay(
+            handler: { MapChangeEvent event ->
+                if (!aliveOrDetach()) return
+                if (!event.map.is(boundMapView.map)) return
+                if (event.property == TagCategories || event.property instanceof Tag) {
+                    usageCountsStale = true
+                    scheduleRefresh()
+                }
+            },
+            structureHandler: { ->
+                if (!aliveOrDetach()) return
+                usageCountsStale = true
+                scheduleRefresh()
+            })
+    mapController.addMapChangeListener(mapChangeRelay)
+
+    nodeChangeRelay = new PanelNodeChangeRelay(handler: { NodeChangeEvent event ->
+        if (!aliveOrDetach()) return
+        if (event.property == CoreTags) {
+            usageCountsStale = true
+            updateAssignedMarks()
+            scheduleRefresh()
+        }
+    })
+    mapController.addNodeChangeListener(nodeChangeRelay)
+
+    viewChangeRelay = new PanelViewChangeRelay(handler: { Component newView ->
+        if (!aliveOrDetach()) return
+        followToView(newView)
+    })
+    Controller.currentController.mapViewManager.addMapViewChangeListener(viewChangeRelay)
+}
+
+void scheduleRefresh() {
+    refreshTimer.restart()
+}
+
+boolean isFollowTabs() {
+    try {
+        return ResourceController.getResourceController().getBooleanProperty(FOLLOW_TABS_KEY, false)
+    } catch (Throwable t) {
+        return false
+    }
+}
+
+void applyFollowTabs(boolean enabled) {
+    try {
+        ResourceController.getResourceController().setProperty(FOLLOW_TABS_KEY, enabled)
+    } catch (Throwable t) {
+        showStatus("Could not save the option: " + t.getMessage())
+    }
+    showStatus(enabled ? "The panel will move to whatever tab you switch to"
+                       : "The panel stays on this tab")
+}
+
+void followToView(Component newViewComponent) {
+    if (tagPanel == null || !isFollowTabs()) return
+    if (!(newViewComponent instanceof MapView)) return
+    MapView newView = (MapView) newViewComponent
+    if (newView.is(boundMapView)) return
+
+    MapViewScrollPane newScrollPane =
+            SwingUtilities.getAncestorOfClass(MapViewScrollPane, newView) as MapViewScrollPane
+    if (newScrollPane == null) return
+
+    clearMapFilter(false)
+    if (tagTree != null && tagTree.isEditing()) tagTree.cancelEditing()
+    disposeOptionsDialog()
+
+    Container oldHost = overlayHost
+    if (reservedAreaSupplier != null) boundScrollPane.removeReservedAreaSupplier(reservedAreaSupplier)
+    if (viewportListener != null) boundScrollPane.viewport.removeComponentListener(viewportListener)
+    oldHost.remove(tagPanel)
+    boundScrollPane.putClientProperty(CLOSE_HANDLE_KEY, null)
+    boundScrollPane.putClientProperty(SUPPLIER_KEY, null)
+
+    boundMapView = newView
+    boundScrollPane = newScrollPane
+    overlayHost = resolveOverlayHost()
+
+    overlayHost.add(tagPanel)
+    overlayHost.setComponentZOrder(tagPanel, 0)
+    if (reservedAreaSupplier != null) {
+        boundScrollPane.addViewportReservedAreaSupplier(reservedAreaSupplier)
+        boundScrollPane.putClientProperty(SUPPLIER_KEY, reservedAreaSupplier)
+    }
+    if (viewportListener != null) boundScrollPane.viewport.addComponentListener(viewportListener)
+    boundScrollPane.putClientProperty(CLOSE_HANDLE_KEY, { -> closePanel() })
+
+    oldHost.revalidate()
+    oldHost.repaint()
+
+    loadFavorites()
+    usageCountsStale = true
+    expandedQns.clear()
+    firstBuildDone = false
+    refreshTree()
+    updateAssignedMarks()
+    fitPanelBounds()
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Lifecycle ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Panel ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+void createTagPanel() {
+    tagPanel = transparentPanel(new BorderLayout())
+    tagPanel.setName(PANEL_NAME)
+    tagPanel.setBorder(BorderFactory.createLineBorder(panelBorderColor(), panelBorderThickness))
+
+    JPanel header = transparentPanel(new BorderLayout())
+    header.add(createTitleBar(), BorderLayout.NORTH)
+    header.add(createFilterBox(), BorderLayout.CENTER)
+    header.add(createFavoritesStrip(), BorderLayout.SOUTH)
+
+    tagPanel.add(header, BorderLayout.NORTH)
+    tagPanel.add(createTreeArea(), BorderLayout.CENTER)
+
+    statusLabel = new JLabel(" ")
+    statusLabel.setFont(itemFont().deriveFont((float) (panelTextFontSize - 2)))
+    statusLabel.setOpaque(true)
+    statusLabel.setBackground(barColor)
+    statusLabel.setForeground(barTextColor())
+    tagPanel.add(statusLabel, BorderLayout.SOUTH)
+
+    // MouseListener for panel - transfer focus to tree
+    tagPanel.addMouseListener(new MouseAdapter() {
+        @Override
+        void mousePressed(MouseEvent e) {
+            // When clicking on the panel (empty area of tree)
+            Component clicked = e.getComponent()
+            if (clicked == tagPanel) {
+                // Transfer focus to tree
+                if (tagTree != null) {
+                    tagTree.requestFocusInWindow()
+                }
+            }
+        }
+    })
+
+    bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
+            KeyEvent.VK_ESCAPE, 0, "closeUnifiedTagPanel", { closePanel() })
+
+    // Keyboard shortcuts for reordering (always available, no edit mode needed)
+    bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
+            KeyEvent.VK_UP, InputEvent.ALT_DOWN_MASK, "tagMoveUp", { moveSelectedTag('up') })
+    bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
+            KeyEvent.VK_DOWN, InputEvent.ALT_DOWN_MASK, "tagMoveDown", { moveSelectedTag('down') })
+    bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
+            KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK, "tagPromote", { moveSelectedTag('promote') })
+    bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
+            KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK, "tagDemote", { moveSelectedTag('demote') })
+
+    tagPanel.setBounds(0, 0, retractedWidth(), 10)
+
+    overlayHost.add(tagPanel)
+    overlayHost.setComponentZOrder(tagPanel, 0)
+
+    reservedAreaSupplier = { ->
+        tagPanel != null && tagPanel.isVisible() ? boundsInScrollPane(tagPanel) : MapViewScrollPane.EMPTY_RECTANGLE
+    } as MapViewScrollPane.ViewportReservedAreaSupplier
+    boundScrollPane.addViewportReservedAreaSupplier(reservedAreaSupplier)
+    boundScrollPane.putClientProperty(SUPPLIER_KEY, reservedAreaSupplier)
+
+    hoverListener = new MouseAdapter() {
+        @Override
+        void mouseEntered(MouseEvent e) {
+            mouseOverPanel = true
+            retractTimer.stop()
+            fitPanelBounds()
+        }
+
+        @Override
+        void mouseExited(MouseEvent e) {
+            mouseOverPanel = false
+            retractTimer.restart()
+            if (boundMapView != null && !popupOpen) {
+                boundMapView.requestFocusInWindow()
+            }
+        }
+    }
+    addHoverListenerRecursively(tagPanel)
+
+    fitPanelBounds()
+    overlayHost.revalidate()
+    overlayHost.repaint()
+    filterField.requestFocusInWindow()
+}
+
+JPanel createTitleBar() {
+    Color barForeground = barTextColor()
+
+    JPanel titleBar = new JPanel(new BorderLayout())
+    titleBar.setOpaque(true)
+    titleBar.setBackground(barColor)
+    titleBar.setPreferredSize(new Dimension(0, titleBarHeight))
+
+    JLabel title = new JLabel(" " + titleBarText)
+    title.setFont(new Font(panelTextFontName, Font.BOLD, panelTextFontSize - 2))
+    title.setForeground(barForeground)
+
+    wideButton = createBarButton(wideOffSymbol, barForeground, wideTooltip(), { toggleWideMode() })
+    JButton closeButton = createBarButton(closeButtonSymbol, barForeground, "Close the panel", { closePanel() })
+    closeButton.addMouseListener(new MouseAdapter() {
+        @Override
+        void mouseEntered(MouseEvent e) { closeButton.setForeground(Color.RED) }
+
+        @Override
+        void mouseExited(MouseEvent e) { closeButton.setForeground(barForeground) }
+    })
+
+    JPanel barButtons = transparentPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0))
+    barButtons.add(wideButton)
+    barButtons.add(closeButton)
+
+    titleBar.add(title, BorderLayout.CENTER)
+    titleBar.add(barButtons, BorderLayout.EAST)
+    return titleBar
+}
+
+JButton createBarButton(String symbol, Color barForeground, String tooltip, Closure action) {
+    JButton button = new JButton(symbol)
+    button.setFont(new Font(panelTextFontName, Font.BOLD, panelTextFontSize - 2))
+    button.setForeground(barForeground)
+    button.setToolTipText(tooltip)
+    button.setPreferredSize(new Dimension(titleBarHeight, titleBarHeight))
+    button.setOpaque(false)
+    button.setContentAreaFilled(false)
+    button.setBorderPainted(false)
+    button.setFocusPainted(false)
+    button.setMargin(new Insets(0, 0, 0, 0))
+    Color hoverBackground = barHoverColor()
+    button.addMouseListener(new MouseAdapter() {
+        @Override
+        void mouseEntered(MouseEvent e) {
+            button.setOpaque(true)
+            button.setBackground(hoverBackground)
+            button.repaint()
+        }
+
+        @Override
+        void mouseExited(MouseEvent e) {
+            button.setOpaque(false)
+            button.repaint()
+        }
+    })
+    button.addActionListener({ ActionEvent e -> action.call() } as ActionListener)
+    return button
+}
+
+String wideTooltip() {
+    return wideMode ? "Restore the normal width" : "Expand to " + wideWidthPercent + "% of the map and pin"
+}
+
+void toggleWideMode() {
+    wideMode = !wideMode
+    wideButton.setText(wideMode ? wideOnSymbol : wideOffSymbol)
+    wideButton.setToolTipText(wideTooltip())
+    fitPanelBounds()
+}
+
+
+JPanel createFilterBox() {
+    filterField = new JTextField() {
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g)
+            if (getText().isEmpty()) {
+                Graphics2D g2 = (Graphics2D) g.create()
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+                    g2.setFont(getFont().deriveFont(Font.ITALIC))
+                    g2.setColor(blendColors(getForeground(), getBackground(), 0.55f))
+                    g2.drawString(filterFieldPlaceholder, getInsets().left,
+                            getInsets().top + g2.getFontMetrics().getAscent())
+                } finally {
+                    g2.dispose()
+                }
+            }
+        }
+    }
+    filterField.setName(FILTER_FIELD_NAME)
+    filterField.setFont(itemFont())
+    filterFieldDefaultBackground = filterField.getBackground()
+    filterField.setBorder(BorderFactory.createCompoundBorder(
+            filterField.getBorder(), BorderFactory.createEmptyBorder(2, 6, 2, 6)))
+
+    // Click on search box
+    filterField.addMouseListener(new MouseAdapter() {
+        @Override
+        void mouseClicked(MouseEvent e) {
+            if (!filterField.hasFocus()) {
+                filterField.requestFocusInWindow()
+            }
+        }
+    })
+
+    filterField.getDocument().addDocumentListener(new DocumentListener() {
+        @Override
+        void insertUpdate(DocumentEvent e) { onFilterEdited() }
+
+        @Override
+        void removeUpdate(DocumentEvent e) { onFilterEdited() }
+
+        @Override
+        void changedUpdate(DocumentEvent e) { onFilterEdited() }
+    })
+
+    filterField.addFocusListener(new FocusAdapter() {
+        @Override
+        void focusGained(FocusEvent e) { fitPanelBounds() }
+
+        @Override
+        void focusLost(FocusEvent e) { retractTimer.restart() }
+    })
+
+    // کلیدهای Enter برای ایجاد/اختصاص تگ
+    bindKey(filterField, JComponent.WHEN_FOCUSED, KeyEvent.VK_ENTER, 0,
+            "assignBestMatch", { commitFieldAction(false) })
+    bindKey(filterField, JComponent.WHEN_FOCUSED, KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK,
+            "forceCreateTag", { commitFieldAction(true) })
+
+    // ===== کلیدهای پیمایش نتایج جستجو (وقتی فیلد فوکوس دارد) =====
+    // 1. کلیدهای ساده Up/Down
+    bindKey(filterField, JComponent.WHEN_FOCUSED, KeyEvent.VK_DOWN, 0,
+            "nextTagRow", { moveTreeSelection(1) })
+    bindKey(filterField, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, 0,
+            "previousTagRow", { moveTreeSelection(-1) })
+    
+    // 2. کلیدهای Ctrl+Up/Down (همین کار را انجام میدهند)
+    bindKey(filterField, JComponent.WHEN_FOCUSED, KeyEvent.VK_DOWN, InputEvent.CTRL_DOWN_MASK,
+            "filterSearchNext", { moveTreeSelection(1) })
+    bindKey(filterField, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK,
+            "filterSearchPrevious", { moveTreeSelection(-1) })
+
+    // 3. کلیدهای Ctrl+Up/Down در سطح پنجره (برای زمانی که فیلد فوکوس ندارد)
+    bindKey(filterField, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyEvent.VK_DOWN, InputEvent.CTRL_DOWN_MASK,
+            "filterSearchNextGlobal", { moveTreeSelection(1) })
+    bindKey(filterField, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK,
+            "filterSearchPreviousGlobal", { moveTreeSelection(-1) })
+
+    // دکمه Add Child Tag (سریع)
+    JButton fastAddChildBtn = new JButton("⚡ Add Child Tag")
+    fastAddChildBtn.setFont(new Font(panelTextFontName, Font.BOLD, panelTextFontSize))
+    fastAddChildBtn.setMargin(new Insets(4, 8, 4, 8))
+    fastAddChildBtn.setFocusPainted(false)
+    fastAddChildBtn.setBackground(new Color(255, 220, 150))
+    fastAddChildBtn.setForeground(new Color(150, 80, 0))
+    fastAddChildBtn.setBorder(BorderFactory.createCompoundBorder(
+        BorderFactory.createLineBorder(new Color(200, 120, 0), 1),
+        BorderFactory.createEmptyBorder(4, 10, 4, 10)
+    ))
+    fastAddChildBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+    fastAddChildBtn.setToolTipText("Add child tag fast (auto-removes after 2s)")
+    fastAddChildBtn.addActionListener({ ActionEvent e -> 
+        openFastChildPanel()
+    } as ActionListener)
+
+    // =====  Merge =====
+    JButton mergeBtn = new JButton("🔀 Merge / Assign")    
+    mergeBtn.setFont(new Font(panelTextFontName, Font.BOLD, panelTextFontSize))
+    mergeBtn.setMargin(new Insets(4, 8, 4, 8))
+    mergeBtn.setFocusPainted(false)
+    mergeBtn.setBackground(new Color(220, 240, 220))
+    mergeBtn.setForeground(new Color(0, 120, 0))
+    mergeBtn.setBorder(BorderFactory.createCompoundBorder(
+        BorderFactory.createLineBorder(new Color(0, 150, 0), 1),
+        BorderFactory.createEmptyBorder(4, 10, 4, 10)
+    ))
+    mergeBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+    mergeBtn.setToolTipText("Open Merge/Assign panel")
+    mergeBtn.addActionListener({ ActionEvent e -> 
+        openMergePanel()
+    } as ActionListener)
+
+    JButton clearButton = new JButton(clearButtonSymbol)
+    clearButton.setToolTipText("Clear the filter")
+    clearButton.setFont(itemFont())
+    clearButton.setPreferredSize(new Dimension(widthOfTheClearButton, 30))
+    clearButton.setForeground(barTextColor())
+    clearButton.setBackground(barColor)
+    clearButton.setContentAreaFilled(false)
+    clearButton.setOpaque(true)
+    clearButton.setBorder(BorderFactory.createEmptyBorder())
+    clearButton.setFocusPainted(false)
+    Color clearHoverBackground = barHoverColor()
+    clearButton.addMouseListener(new MouseAdapter() {
+        @Override
+        void mouseEntered(MouseEvent e) { clearButton.setBackground(clearHoverBackground) }
+
+        @Override
+        void mouseExited(MouseEvent e) { clearButton.setBackground(barColor) }
+    })
+    clearButton.addActionListener({ ActionEvent e ->
+        filterField.setText("")
+        filterField.requestFocusInWindow()
+    } as ActionListener)
+
+    // Filter Mode button
+    filterModeButton = new JButton(isFilterHides() ? filterHidesSymbol : highlightOnlySymbol)
+    filterModeButton.setName("UnifiedTagPanelFilterModeButton")
+    filterModeButton.setToolTipText(filterModeTooltip())
+    filterModeButton.setFont(itemFont())
+    filterModeButton.setPreferredSize(new Dimension(widthOfTheClearButton, 30))
+    filterModeButton.setForeground(barTextColor())
+    filterModeButton.setBackground(barColor)
+    filterModeButton.setContentAreaFilled(false)
+    filterModeButton.setOpaque(true)
+    filterModeButton.setBorder(BorderFactory.createEmptyBorder())
+    filterModeButton.setFocusPainted(false)
+    filterModeButton.addMouseListener(new MouseAdapter() {
+        @Override
+        void mouseEntered(MouseEvent e) { filterModeButton.setBackground(barHoverColor()) }
+
+        @Override
+        void mouseExited(MouseEvent e) { filterModeButton.setBackground(barColor) }
+    })
+    filterModeButton.addActionListener({ ActionEvent e -> applyFilterHides(!isFilterHides()) } as ActionListener)
+
+    // Place buttons
+    JPanel buttons = transparentPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0))
+    buttons.add(filterModeButton)
+    buttons.add(clearButton)
+
+    JPanel filterBox = transparentPanel(new BorderLayout())
+    filterBox.add(filterField, BorderLayout.CENTER)
+    filterBox.add(buttons, BorderLayout.EAST)
+    
+    return filterBox
+}
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Usage counts ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+// One pass over the map, tallying two things per node:
+//  - each tag exactly as assigned            -> directUsage
+//  - that tag AND every ancestor category    -> categoryUsage
+// The per-node dedup (impliedHere) is what keeps a node tagged both 'work' and
+// 'work::urgent' from being counted twice in the 'work' category.
+void ensureUsageCounts() {
+    if (!usageCountsStale) return
+    usageCountsStale = false
+
+    Map<String, Integer> direct = new HashMap<String, Integer>()
+    Map<String, Integer> category = new HashMap<String, Integer>()
+    String sep = separator()
+    IconController iconController = IconController.getController()
+
+    List<NodeModel> stack = new ArrayList<NodeModel>()
+    stack.add(boundMapView.getMap().getRootNode())
+    Set<String> impliedHere = new HashSet<String>()
+    while (!stack.isEmpty()) {
+        NodeModel current = stack.remove(stack.size() - 1)
+        List tags = iconController.getTags(current)
+        if (!tags.isEmpty()) {
+            impliedHere.clear()
+            tags.each { tag ->
+                String content = tag.getContent()
+                direct.put(content, (direct.get(content) ?: 0) + 1)
+                impliedHere.add(content)
+                int at = content.indexOf(sep)
+                while (at >= 0) {
+                    impliedHere.add(content.substring(0, at))
+                    at = content.indexOf(sep, at + sep.length())
+                }
+            }
+            impliedHere.each { category.put(it, (category.get(it) ?: 0) + 1) }
+        }
+        current.getChildren().each { stack.add(it) }
+    }
+
+    directUsage = direct
+    categoryUsage = category
+}
+
+String usageTooltip(TagRow row, boolean hasChildren) {
+    if (row == null || row.qualifiedName == null) return null
+    if (!showUsageCounts) return row.qualifiedName
+    int direct = directUsageOf(row.qualifiedName)
+    int total = categoryUsageOf(row.qualifiedName)
+    StringBuilder text = new StringBuilder(row.qualifiedName)
+    text.append(" — ").append(direct).append(direct == 1 ? " node" : " nodes")
+    if (hasChildren && total != direct) {
+        text.append("; ").append(total).append(" in the whole category")
+    }
+    if (total == 0) text.append(" (unused)")
+    return text.toString()
+}
+
+int directUsageOf(String qn) {
+    return qn == null ? 0 : (directUsage.get(qn) ?: 0)
+}
+
+int categoryUsageOf(String qn) {
+    return qn == null ? 0 : (categoryUsage.get(qn) ?: 0)
+}
+
+boolean isTagUnused(String qn) {
+    return categoryUsageOf(qn) == 0
+}
+
+boolean isSortByUsage() {
+    try {
+        return ResourceController.getResourceController().getBooleanProperty(SORT_BY_USAGE_KEY, false)
+    } catch (Throwable t) {
+        return false
+    }
+}
+
+void applySortByUsage(boolean enabled) {
+    try {
+        ResourceController.getResourceController().setProperty(SORT_BY_USAGE_KEY, enabled)
+    } catch (Throwable t) {
+        showStatus("Could not save the option: " + t.getMessage())
+    }
+    refreshTree()
+}
+
+void buildFlatUsageRows(DefaultMutableTreeNode root, def state, String needle) {
+    List<Map> entries = []
+    def collect
+    collect = { cat ->
+        entries.add([qn: cat.qualifiedName, path: new ArrayList<String>(cat.path),
+                     color: cat.color, uncategorized: false])
+        cat.children.each { collect(it) }
+    }
+    state.categories.each { collect(it) }
+    state.uncategorizedTags.each { item ->
+        entries.add([qn: item.qualifiedName, path: new ArrayList<String>(item.path),
+                     color: item.color, uncategorized: true])
+    }
+
+    entries = entries.findAll { entry ->
+        (!hideUnusedTags || categoryUsageOf((String) entry.qn) > 0) &&
+                (needle.isEmpty() || foldAccents(((String) entry.qn).toLowerCase()).contains(needle))
+    }
+    entries.sort { a, b ->
+        int byUsage = categoryUsageOf((String) b.qn) <=> categoryUsageOf((String) a.qn)
+        byUsage != 0 ? byUsage : ((String) a.qn).compareToIgnoreCase((String) b.qn)
+    }
+
+    entries.each { entry ->
+        root.add(new DefaultMutableTreeNode(new TagRow(
+                name: (String) entry.qn, qualifiedName: (String) entry.qn,
+                path: (List<String>) entry.path, colorHex: (String) entry.color,
+                uncategorized: (boolean) entry.uncategorized)))
+    }
+}
+
+String usageSuffix(TagRow row, boolean hasChildren) {
+    if (!showUsageCounts || row == null || row.qualifiedName == null) return ""
+    int direct = directUsageOf(row.qualifiedName)
+    int total = categoryUsageOf(row.qualifiedName)
+    if (!showCategoryTotals || !hasChildren || direct == total) return " (" + total + ")"
+    return " (" + direct + "/" + total + ")"
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Usage counts ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Favorites ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+JPanel createFavoritesStrip() {
+    favoritesStrip = transparentPanel(new WrapLayout(FlowLayout.RIGHT, favoritesGapX, favoritesGapY))
+    favoritesStrip.setName(FAVORITES_STRIP_NAME)
+    favoritesStrip.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, panelBorderColor()))
+    favoritesStrip.setVisible(false)
+    // Only setComponentOrientation is sufficient
+favoritesStrip.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+    
+    favoritesStrip.setTransferHandler(new TransferHandler() {
+        @Override
+        boolean canImport(TransferHandler.TransferSupport support) {
+            return tagDndFlavor != null && support.isDataFlavorSupported(tagDndFlavor)
+        }
+
+        @Override
+        boolean importData(TransferHandler.TransferSupport support) {
+            if (!canImport(support)) return false
+            String qn = String.valueOf(support.getTransferable().getTransferData(tagDndFlavor))
+            return addFavorite(qn)
+        }
+    })
+    return favoritesStrip
+}
+
+void loadFavorites() {
+    favorites.clear()
+    try {
+        Object stored = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.storage[FAVORITES_KEY]
+        if (stored != null) {
+            String.valueOf(stored).readLines().each { String line ->
+                String qn = line.trim()
+                if (!qn.isEmpty() && !favorites.contains(qn)) favorites.add(qn)
+            }
+        }
+    } catch (Throwable t) {
+        showStatus("Could not read the favorites: " + t.getMessage())
+    }
+}
+
+void saveFavorites() {
+    try {
+        ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.storage[FAVORITES_KEY] = favorites.join("\n")
+    } catch (Throwable t) {
+        showStatus("Could not save the favorites: " + t.getMessage())
+    }
+}
+
+boolean isFavorite(String qn) {
+    return qn != null && favorites.contains(qn)
+}
+
+boolean addFavorite(String qn) {
+    if (qn == null || qn.isEmpty() || favorites.contains(qn)) return false
+    favorites.add(qn)
+    saveFavorites()
+    rebuildFavoritesStrip()
+    remeasureRows([qn])
+    if (tagTree != null) tagTree.repaint()
+    showStatus("'" + qn + "' added to the favorites of this map")
+    return true
+}
+
+void removeFavorite(String qn) {
+    if (!favorites.remove(qn)) return
+    saveFavorites()
+    rebuildFavoritesStrip()
+    remeasureRows([qn])
+    if (tagTree != null) tagTree.repaint()
+    showStatus("'" + qn + "' removed from the favorites")
+}
+
+void moveFavorite(String qn, int delta) {
+    int index = favorites.indexOf(qn)
+    if (index < 0) return
+    int target = index + delta
+    if (target < 0 || target >= favorites.size()) return
+    favorites.remove(index)
+    favorites.add(target, qn)
+    saveFavorites()
+    rebuildFavoritesStrip()
+}
+
+void remapFavorites(String oldQualifiedName, String newQualifiedName) {
+    if (oldQualifiedName == null || favorites.isEmpty()) return
+    String prefix = oldQualifiedName + separator()
+    boolean changed = false
+
+    List<String> updated = new ArrayList<String>()
+    favorites.each { String qn ->
+        String mapped
+        if (qn == oldQualifiedName) {
+            mapped = newQualifiedName
+        } else if (qn.startsWith(prefix)) {
+            mapped = newQualifiedName == null ? null
+                    : newQualifiedName + separator() + qn.substring(prefix.length())
+        } else {
+            mapped = qn
+        }
+        if (mapped != qn) changed = true
+        if (mapped != null && !updated.contains(mapped)) updated.add(mapped)
+    }
+
+    if (!changed) return
+    favorites.clear()
+    favorites.addAll(updated)
+    saveFavorites()
+    rebuildFavoritesStrip()
+}
+
+void rebuildFavoritesStrip() {
+    if (favoritesStrip == null) return
+    favoritesStrip.removeAll()
+    favoritesStrip.setVisible(!favorites.isEmpty())
+    favorites.each { String qn -> favoritesStrip.add(favoriteChip(qn)) }
+    favoritesStrip.revalidate()
+    favoritesStrip.repaint()
+    fitPanelBounds()
+}
+
+JLabel favoriteChip(String qn) {
+    boolean known = rowByQn(qn) != null
+    Color background = colorForQualifiedName(qn)
+
+    JLabel chip = new JLabel()
+    chip.putClientProperty("tagQn", qn)
+    chip.setOpaque(true)
+    chip.setBackground(background)
+    chip.setForeground(UITools.getTextColorForBackground(background))
+    chip.setFont(itemFont().deriveFont((float) (panelTextFontSize - 1)))
+    chip.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(known ? background : Color.RED, 1),
+            BorderFactory.createEmptyBorder(1, 5, 1, 5)))
+    chip.setToolTipText(known ? qn : qn + " — no longer in this map (clicking recreates it)")
+    applyChipText(chip)
+
+    chip.addMouseListener(new MouseAdapter() {
+        @Override
+        void mousePressed(MouseEvent e) {
+            if (e.isPopupTrigger()) {
+                showFavoriteMenu(chip, qn, e)
+                return
+            }
+            if (SwingUtilities.isLeftMouseButton(e)) toggleTagQn(qn)
+        }
+
+        @Override
+        void mouseReleased(MouseEvent e) {
+            if (e.isPopupTrigger()) showFavoriteMenu(chip, qn, e)
+        }
+    })
+    chip.addMouseListener(hoverListener)
+    return chip
+}
+
+void applyChipText(JLabel chip) {
+    String qn = (String) chip.getClientProperty("tagQn")
+    String marker = assignedAll.contains(qn) ? markAll + " " : assignedSome.contains(qn) ? markSome + " " : ""
+    chip.setText(marker + shortNameOf(qn))
+}
+
+String shortNameOf(String qn) {
+    String sep = separator()
+    int at = qn.lastIndexOf(sep)
+    return at < 0 ? qn : qn.substring(at + sep.length())
+}
+
+Color colorForQualifiedName(String qn) {
+    TagRow row = rowByQn(qn)
+    if (row != null) return chipColor(row)
+    return new Tag(qn).getColor()
+}
+
+void showFavoriteMenu(JLabel chip, String qn, MouseEvent e) {
+    JPopupMenu menu = new JPopupMenu()
+    menu.add(menuItem("Assign to selected node(s)", { assignTagQn(qn) }))
+    menu.add(menuItem("Remove from selected node(s)", { removeTagQn(qn) }))
+    menu.addSeparator()
+    if (rowByQn(qn) != null) {
+        menu.add(menuItem("Show in the tree", { selectRowByQn(qn) }))
+    }
+    menu.add(menuItem("Move left", { moveFavorite(qn, -1) }))
+    menu.add(menuItem("Move right", { moveFavorite(qn, 1) }))
+    menu.addSeparator()
+    menu.add(menuItem("Remove from favorites", { removeFavorite(qn) }))
+    addPanelOptionItems(menu)
+    attachPopupGuard(menu)
+    menu.show(chip, e.getX(), e.getY())
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Favorites ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+void onFilterEdited() {
+    filterDebounceTimer.restart()
+}
+
+boolean applyFilterText() {
+    filterDebounceTimer.stop()
+    String text = filterField.getText().trim()
+    if (text == filterText) return false
+    filterText = text
+    refreshTree()
+    return true
+}
+
+
+JComponent createTreeArea() {
+    treeRootNode = new DefaultMutableTreeNode(new TagRow(name: "tags", synthetic: true))
+    tagTree = new JTree(new DefaultTreeModel(treeRootNode)) {
+        @Override
+        Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize()
+        }
+    }
+    tagTree.setRootVisible(false)
+    tagTree.setShowsRootHandles(true)
+    tagTree.setOpaque(false)
+    tagTree.setRowHeight(0)
+    tagTree.setFont(itemFont())
+    tagTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION)
+    tagTree.setToggleClickCount(0)
+    tagTree.setCellRenderer(createTagRenderer())
+
+    tagTree.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+
+    renameEditorField = new JTextField()
+    renameEditorField.setFont(itemFont())
+    treeCellEditor = new DefaultCellEditor(renameEditorField) {
+        @Override
+        boolean isCellEditable(java.util.EventObject anEvent) { return anEvent == null }
+    }
+    tagTree.setEditable(true)
+    tagTree.setCellEditor(treeCellEditor)
+    tagTree.setInvokesStopCellEditing(true)
+    treeCellEditor.addCellEditorListener([
+            editingStopped : { ChangeEvent e -> commitRename() },
+            editingCanceled: { ChangeEvent e -> renamingRow = null }
+    ] as CellEditorListener)
+
+    tagTree.addTreeExpansionListener(new TreeExpansionListener() {
+        @Override
+        void treeExpanded(TreeExpansionEvent event) {
+            TagRow row = rowOf(event.getPath())
+            if (row != null && row.qualifiedName != null) expandedQns.add(row.qualifiedName)
+            fitPanelBounds()
+        }
+
+        @Override
+        void treeCollapsed(TreeExpansionEvent event) {
+            TagRow row = rowOf(event.getPath())
+            if (row != null && row.qualifiedName != null) expandedQns.remove(row.qualifiedName)
+            fitPanelBounds()
+        }
+    })
+
+    // ===== کلیدهای پیمایش معمولی درخت =====
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_DOWN, 0,
+            "treeNextRow", { 
+                int rows = tagTree.getRowCount()
+                if (rows > 0) {
+                    int current = tagTree.getLeadSelectionRow()
+                    int next = current < 0 ? 0 : Math.min(current + 1, rows - 1)
+                    tagTree.setSelectionRow(next)
+                    tagTree.scrollRowToVisible(next)
+                }
+            })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, 0,
+            "treePreviousRow", { 
+                int rows = tagTree.getRowCount()
+                if (rows > 0) {
+                    int current = tagTree.getLeadSelectionRow()
+                    int prev = current < 0 ? rows - 1 : Math.max(current - 1, 0)
+                    tagTree.setSelectionRow(prev)
+                    tagTree.scrollRowToVisible(prev)
+                }
+            })
+    
+    // ===== کلیدهای Ctrl+Up/Down برای پیمایش نتایج جستجو (وقتی درخت فوکوس دارد) =====
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_DOWN, InputEvent.CTRL_DOWN_MASK,
+            "filterSearchNext", { moveTreeSelection(1) })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK,
+            "filterSearchPrevious", { moveTreeSelection(-1) })
+
+    // Alt+directions for moving
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, InputEvent.ALT_DOWN_MASK,
+            "tagMoveUp", { moveSelectedTag('up') })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_DOWN, InputEvent.ALT_DOWN_MASK,
+            "tagMoveDown", { moveSelectedTag('down') })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK,
+            "tagPromote", { moveSelectedTag('promote') })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK,
+            "tagDemote", { moveSelectedTag('demote') })
+
+    // Hover on tags (select only, without changing focus)
+    tagTree.addMouseMotionListener(new MouseMotionAdapter() {
+        @Override
+        void mouseMoved(MouseEvent e) {
+            TreePath path = tagTree.getPathForLocation(e.getX(), e.getY())
+            if (path != null) {
+                TagRow row = rowOf(path)
+                if (row != null && !row.synthetic) {
+                    tagTree.setSelectionPath(path)
+                    // ===== فوکوس خودکار روی جدول =====
+                    if (!tagTree.hasFocus()) {
+                        tagTree.requestFocusInWindow()
+                    }
+                }
+            }
+        }
+    })
+
+    tagTree.addMouseListener(new MouseAdapter() {
+        @Override
+        void mousePressed(MouseEvent e) {
+            if (e.isPopupTrigger()) {
+                showContextMenu(e)
+                return
+            }
+            if (!SwingUtilities.isLeftMouseButton(e)) return
+            
+            TreePath path = tagTree.getPathForLocation(e.getX(), e.getY())
+            if (path == null) return
+            TagRow row = rowOf(path)
+            if (row == null || row.synthetic) return
+            
+            tagTree.setSelectionPath(path)
+            
+            if (isMergePanelOpen) {
+                selectTagFromTree()
+                return
+            }
+            
+            toggleTagOnSelection(row)
+            
+            if (fastWaitingForParent) {
+                selectFastParentTag()
+            }
+        }
+        
+        @Override
+        void mouseReleased(MouseEvent e) {
+            if (e.isPopupTrigger()) {
+                showContextMenu(e)
+            }
+        }
+    })
+
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_ENTER, 0,
+            "toggleSelectedTag", { TagRow row = selectedRow(); if (row != null) toggleTagOnSelection(row) })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_SPACE, 0,
+            "toggleSelectedTagSpace", { TagRow row = selectedRow(); if (row != null) toggleTagOnSelection(row) })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_F2, 0,
+            "renameSelectedTag", { startRename() })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_INSERT, 0,
+            "addChildTag", { addChildToSelected() })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_DELETE, 0,
+            "deleteSelectedTag", { deleteSelectedTag() })
+
+    tagDndFlavor = new DataFlavor('application/x-unified-tag-panel; class=java.lang.String', 'UnifiedTagPanel tag')
+    tagTree.setDragEnabled(true)
+    tagTree.setDropMode(DropMode.ON_OR_INSERT)
+    tagTree.setTransferHandler(createTreeDndHandler())
+    tagTree.putClientProperty('UnifiedTagPanelDropTest', { String draggedQn, String parentQn, Integer childIndex ->
+        TagRow dragged = rowByQn(draggedQn)
+        TagRow parent = parentQn == null ? null : (parentQn == '::uncategorized::' ? uncategorizedHeaderRow() : rowByQn(parentQn))
+        if (dragged == null) return 'dragged not found'
+        Map plan = planDropMove(dragged, parent, childIndex)
+        if (plan == null) return 'rejected'
+        return performDropMove(plan)
+    })
+
+    treeScrollPane = new JScrollPane(tagTree)
+    treeScrollPane.setOpaque(false)
+    treeScrollPane.getViewport().setOpaque(false)
+    treeScrollPane.setBorder(BorderFactory.createEmptyBorder())
+treeScrollPane.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+
+    // ===== MouseListener برای اسکرول پن (فوکوس خودکار هنگام ورود ماوس) =====
+    treeScrollPane.addMouseListener(new MouseAdapter() {
+        @Override
+        void mouseEntered(MouseEvent e) {
+            // ===== وقتی ماوس وارد اسکرول پن می‌شود، فوکوس به جدول =====
+            if (tagTree != null && !tagTree.hasFocus()) {
+                tagTree.requestFocusInWindow()
+            }
+        }
+        
+        @Override
+        void mousePressed(MouseEvent e) {
+            if (tagTree != null) {
+                tagTree.requestFocusInWindow()
+            }
+        }
+    })
+
+    // ===== MouseListener برای ویوپورت (فوکوس خودکار هنگام ورود ماوس) =====
+    treeScrollPane.getViewport().addMouseListener(new MouseAdapter() {
+        @Override
+        void mouseEntered(MouseEvent e) {
+            // ===== وقتی ماوس وارد ویوپورت می‌شود، فوکوس به جدول =====
+            if (tagTree != null && !tagTree.hasFocus()) {
+                tagTree.requestFocusInWindow()
+            }
+        }
+        
+        @Override
+        void mousePressed(MouseEvent e) {
+            if (tagTree != null) {
+                tagTree.requestFocusInWindow()
+            }
+        }
+    })
+
+    return treeScrollPane
+}
+
+
+/*
+ ============================================================================
+ Tree model / rendering
+ ============================================================================
+*/
+
+def readState() {
+    return ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.tagCategories.read()
+}
+
+String separator() {
+    try {
+        return readState().categorySeparator ?: "::"
+    } catch (Throwable t) {
+        return "::"
+    }
+}
+
+void refreshTree() {
+    refreshTree(false)
+}
+
+void refreshTree(boolean force) {
+    if (tagPanel == null || tagTree == null) return
+    if (tagTree.getDropLocation() != null) {
+        scheduleRefresh()
+        return
+    }
+    if (tagTree.isEditing()) {
+        if (!force) {
+            scheduleRefresh()
+            return
+        }
+        tagTree.cancelEditing()
+    }
+
+    // Save previous selection
+    String oldSelectedQn = null
+    TreePath oldSelection = tagTree.getSelectionPath()
+    if (oldSelection != null) {
+        TagRow oldRow = rowOf(oldSelection)
+        if (oldRow != null && oldRow.qualifiedName != null) {
+            oldSelectedQn = oldRow.qualifiedName
+        }
+    }
+
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        showStatus("Could not read tags: " + t.getMessage())
+        return
+    }
+
+    ensureUsageCounts()
+
+    String needle = foldAccents(filterText.toLowerCase())
+    String pruningNeedle = isFilterHides() ? needle : ""
+
+    DefaultMutableTreeNode newRoot = new DefaultMutableTreeNode(new TagRow(name: "tags", synthetic: true))
+    if (isSortByUsage()) {
+        buildFlatUsageRows(newRoot, state, pruningNeedle)
+    } else {
+        state.categories.each { cat ->
+            DefaultMutableTreeNode child = buildCategoryNode(cat, pruningNeedle)
+            if (child != null) newRoot.add(child)
+        }
+
+        List uncategorizedMatches = state.uncategorizedTags.findAll { item ->
+            (!hideUnusedTags || categoryUsageOf(item.qualifiedName) > 0) &&
+                    (pruningNeedle.isEmpty() || foldAccents(item.qualifiedName.toLowerCase()).contains(pruningNeedle))
+        }
+        if (!uncategorizedMatches.isEmpty()) {
+            DefaultMutableTreeNode bucket = new DefaultMutableTreeNode(
+                    new TagRow(name: "uncategorized", synthetic: true, qualifiedName: null))
+            uncategorizedMatches.each { item ->
+                bucket.add(new DefaultMutableTreeNode(new TagRow(
+                        name: item.name, qualifiedName: item.qualifiedName,
+                        path: new ArrayList<String>(item.path), colorHex: item.color,
+                        uncategorized: true)))
+            }
+            newRoot.add(bucket)
+        }
+    }
+
+    treeRootNode = newRoot
+    ((DefaultTreeModel) tagTree.getModel()).setRoot(newRoot)
+
+    int shown = countMatchingRows(newRoot)
+
+    if (!firstBuildDone) {
+        firstBuildDone = true
+        collectAllCategoryQns(newRoot)
+    }
+    restoreExpansion(needle)
+    
+    // Restore previous selection if it exists
+    if (oldSelectedQn != null) {
+        DefaultMutableTreeNode node = findNodeByQn(treeRootNode, oldSelectedQn)
+        if (node != null) {
+            TreePath path = new TreePath(node.getPath())
+            // Expand parent path
+            TreePath parentPath = path.getParentPath()
+            if (parentPath != null && parentPath.getPathCount() > 1) {
+                tagTree.expandPath(parentPath)
+            }
+            tagTree.setSelectionPath(path)
+            tagTree.scrollPathToVisible(path)
+        } else {
+            // If the previous tag no longer exists, select the first row
+            if (!needle.isEmpty()) {
+                int first = firstNavigableRow()
+                if (first >= 0) {
+                    tagTree.setSelectionRow(first)
+                    tagTree.scrollRowToVisible(first)
+                }
+            } else {
+                // If no filter, select the first visible row
+                if (tagTree.getRowCount() > 0) {
+                    tagTree.setSelectionRow(0)
+                }
+            }
+        }
+    } else {
+        // If filter is active and no row is selected, select the first row
+        if (!needle.isEmpty()) {
+            int first = firstNavigableRow()
+            if (first >= 0) {
+                if (!selectionFromMap) {
+                    tagTree.setSelectionRow(first)
+                    tagTree.scrollRowToVisible(first)
+                }
+            }
+        } else {
+            // If no filter, select the first row (if no row is selected)
+            if (tagTree.getSelectionCount() == 0 && tagTree.getRowCount() > 0) {
+                tagTree.setSelectionRow(0)
+            }
+        }
+    }
+
+    int total = countTags(state)
+    if (total == 0) {
+        showStatus("No tags in this map yet — type and press Enter to create one")
+    } else if (!needle.isEmpty()) {
+        showStatus(shown + " of " + total + " tags match" +
+                (isFilterHides() ? "" : " (highlighted, nothing hidden)") +
+                (shown == 0 ? " — Enter creates '" + filterText + "'" : ""))
+    } else if (showUsageCounts) {
+        int unused = countUnusedTags(state)
+        showStatus(total + " tags" + (unused > 0 ? " · " + unused + " unused" : "") +
+                (hideUnusedTags ? " (unused hidden)" : "") +
+                (isSortByUsage() ? " · by usage" : ""))
+    } else {
+        showStatus(total + " tags")
+    }
+
+    rebuildFavoritesStrip()
+    updateAssignedMarks()
+    fitPanelBounds()
+}
+
+DefaultMutableTreeNode buildCategoryNode(def cat, String needle) {
+    boolean selfMatches = needle.isEmpty() || foldAccents(cat.qualifiedName.toLowerCase()).contains(needle)
+    if (hideUnusedTags && categoryUsageOf(cat.qualifiedName) == 0) return null
+
+    List<DefaultMutableTreeNode> children = []
+    cat.children.each { child ->
+        DefaultMutableTreeNode built = buildCategoryNode(child, selfMatches ? "" : needle)
+        if (built != null) children.add(built)
+    }
+
+    if (!selfMatches && children.isEmpty()) return null
+
+    DefaultMutableTreeNode node = new DefaultMutableTreeNode(new TagRow(
+            name: cat.name, qualifiedName: cat.qualifiedName,
+            path: new ArrayList<String>(cat.path), colorHex: cat.color))
+    children.each { node.add(it) }
+    return node
+}
+
+int countMatchingRows(DefaultMutableTreeNode node) {
+    int count = 0
+    for (int i = 0; i < node.getChildCount(); i++) {
+        DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i)
+        if (rowMatchesFilter((TagRow) child.getUserObject())) count++
+        count += countMatchingRows(child)
+    }
+    return count
+}
+
+int countTags(def state) {
+    int count = state.uncategorizedTags.size()
+    List stack = new ArrayList(state.categories)
+    while (!stack.isEmpty()) {
+        def cat = stack.remove(stack.size() - 1)
+        count++
+        stack.addAll(cat.children)
+    }
+    return count
+}
+
+int countUnusedTags(def state) {
+    int count = state.uncategorizedTags.count { categoryUsageOf(it.qualifiedName) == 0 }
+    List stack = new ArrayList(state.categories)
+    while (!stack.isEmpty()) {
+        def cat = stack.remove(stack.size() - 1)
+        if (categoryUsageOf(cat.qualifiedName) == 0) count++
+        stack.addAll(cat.children)
+    }
+    return count
+}
+
+List<Map> unusedTagsToDelete(def state) {
+    List<Map> found = []
+    state.uncategorizedTags.each { item ->
+        if (categoryUsageOf(item.qualifiedName) == 0) {
+            found.add([path: new ArrayList<String>(item.path), qn: item.qualifiedName, uncategorized: true])
+        }
+    }
+    List stack = new ArrayList(state.categories)
+    while (!stack.isEmpty()) {
+        def cat = stack.remove(stack.size() - 1)
+        if (categoryUsageOf(cat.qualifiedName) == 0) {
+            found.add([path: new ArrayList<String>(cat.path), qn: cat.qualifiedName, uncategorized: false])
+        } else {
+            stack.addAll(cat.children)
+        }
+    }
+    return found
+}
+
+void collectAllCategoryQns(DefaultMutableTreeNode node) {
+    for (int i = 0; i < node.getChildCount(); i++) {
+        DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i)
+        TagRow row = (TagRow) child.getUserObject()
+        if (row.qualifiedName != null && child.getChildCount() > 0) expandedQns.add(row.qualifiedName)
+        collectAllCategoryQns(child)
+    }
+}
+
+void restoreExpansion(String needle) {
+    if (!needle.isEmpty() && isFilterHides()) {
+        int i = 0
+        while (i < tagTree.getRowCount()) {
+            tagTree.expandRow(i)
+            i++
+        }
+        return
+    }
+
+    expandMatching(treeRootNode)
+    if (!needle.isEmpty()) revealMatchAncestors(treeRootNode)
+    for (int i = 0; i < treeRootNode.getChildCount(); i++) {
+        DefaultMutableTreeNode child = (DefaultMutableTreeNode) treeRootNode.getChildAt(i)
+        TagRow row = (TagRow) child.getUserObject()
+        if (row.synthetic) tagTree.expandPath(new TreePath(child.getPath()))
+    }
+}
+
+void revealMatchAncestors(DefaultMutableTreeNode node) {
+    for (int i = 0; i < node.getChildCount(); i++) {
+        DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i)
+        if (rowMatchesFilter((TagRow) child.getUserObject())) {
+            TreePath path = new TreePath(child.getPath())
+            List<TreePath> chain = []
+            TreePath ancestor = path.getParentPath()
+            while (ancestor != null && ancestor.getPathCount() > 1) {
+                chain.add(0, ancestor)
+                ancestor = ancestor.getParentPath()
+            }
+            chain.each { tagTree.expandPath(it) }
+        }
+        revealMatchAncestors(child)
+    }
+}
+
+void expandMatching(DefaultMutableTreeNode node) {
+    for (int i = 0; i < node.getChildCount(); i++) {
+        DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i)
+        TagRow row = (TagRow) child.getUserObject()
+        if (row.qualifiedName != null && expandedQns.contains(row.qualifiedName)) {
+            tagTree.expandPath(new TreePath(child.getPath()))
+        }
+        expandMatching(child)
+    }
+}
+
+TagRow rowOf(TreePath path) {
+    if (path == null) return null
+    Object last = path.getLastPathComponent()
+    if (!(last instanceof DefaultMutableTreeNode)) return null
+    Object userObject = ((DefaultMutableTreeNode) last).getUserObject()
+    return userObject instanceof TagRow ? (TagRow) userObject : null
+}
+
+TagRow selectedRow() {
+    return rowOf(tagTree != null ? tagTree.getSelectionPath() : null)
+}
+
+DefaultMutableTreeNode findNodeByQn(DefaultMutableTreeNode from, String qn) {
+    for (int i = 0; i < from.getChildCount(); i++) {
+        DefaultMutableTreeNode child = (DefaultMutableTreeNode) from.getChildAt(i)
+        TagRow row = (TagRow) child.getUserObject()
+        if (qn.equals(row.qualifiedName)) return child
+        DefaultMutableTreeNode found = findNodeByQn(child, qn)
+        if (found != null) return found
+    }
+    return null
+}
+
+void selectRowByQn(String qn) {
+    // Only if from Locate or from tree click
+    // If selectionFromMap == true, do nothing
+    if (selectionFromMap && !locateFromMap) {
+        return
+    }
+    
+    DefaultMutableTreeNode node = findNodeByQn(treeRootNode, qn)
+    if (node == null) return
+    TreePath path = new TreePath(node.getPath())
+    tagTree.expandPath(path.getParentPath())
+    tagTree.setSelectionPath(path)
+    tagTree.scrollPathToVisible(path)
+}
+
+void moveTreeSelection(int delta) {
+    applyFilterText()
+
+    int rows = tagTree.getRowCount()
+    if (rows == 0) return
+
+    int step = delta > 0 ? 1 : -1
+    int current = tagTree.getLeadSelectionRow()
+    int candidate = current < 0 ? (delta > 0 ? 0 : rows - 1) : current + step
+
+    for (int tried = 0; tried < rows; tried++) {
+        int wrapped = ((candidate % rows) + rows) % rows
+        if (isNavigableRow(wrapped)) {
+            tagTree.setSelectionRow(wrapped)
+            tagTree.scrollRowToVisible(wrapped)
+            return
+        }
+        candidate = wrapped + step
+    }
+}
+boolean isNavigableRow(int rowIndex) {
+    return rowMatchesFilter(rowOf(tagTree.getPathForRow(rowIndex)))
+}
+
+boolean rowMatchesFilter(TagRow row) {
+    if (row == null || row.synthetic || row.qualifiedName == null) return false
+    String needle = foldAccents(filterText.toLowerCase())
+    if (needle.isEmpty()) return true
+    return foldAccents(row.qualifiedName.toLowerCase()).contains(needle)
+}
+
+boolean isFilterHides() {
+    try {
+        return ResourceController.getResourceController().getBooleanProperty(FILTER_HIDES_KEY, true)
+    } catch (Throwable t) {
+        return true
+    }
+}
+
+void applyFilterHides(boolean hides) {
+    try {
+        ResourceController.getResourceController().setProperty(FILTER_HIDES_KEY, hides)
+    } catch (Throwable t) {
+        showStatus("Could not save the option: " + t.getMessage())
+    }
+    if (filterModeButton != null) {
+        filterModeButton.setText(hides ? filterHidesSymbol : highlightOnlySymbol)
+        filterModeButton.setToolTipText(filterModeTooltip())
+    }
+    refreshTree()
+}
+
+String filterModeTooltip() {
+    return isFilterHides()
+            ? "Filtering: tags that do not match are hidden. Click to only highlight instead."
+            : "Highlighting only: every tag stays visible. Click to hide what does not match."
+}
+
+List<int[]> matchRangesIn(String text, String foldedNeedle) {
+    List<int[]> ranges = []
+    if (foldedNeedle.isEmpty()) return ranges
+    String haystack = foldAccents(text.toLowerCase())
+    int at = haystack.indexOf(foldedNeedle)
+    while (at >= 0) {
+        ranges.add([at, at + foldedNeedle.length()] as int[])
+        at = haystack.indexOf(foldedNeedle, at + foldedNeedle.length())
+    }
+    return ranges
+}
+
+String highlightedFragment(String text) {
+    String needle = foldAccents(filterText.toLowerCase())
+    if (needle.isEmpty()) return null
+    List<int[]> ranges = matchRangesIn(text, needle)
+    if (ranges.isEmpty()) return null
+
+    StringBuilder html = new StringBuilder()
+    int cursor = 0
+    ranges.each { int[] range ->
+        html.append(HtmlUtils.toXMLEscapedText(text.substring(cursor, range[0])))
+        html.append('<span style="background-color:').append(matchHighlightHex).append('; color:#000000;">')
+        html.append(HtmlUtils.toXMLEscapedText(text.substring(range[0], range[1])))
+        html.append('</span>')
+        cursor = range[1]
+    }
+    html.append(HtmlUtils.toXMLEscapedText(text.substring(cursor)))
+    return html.toString()
+}
+
+int firstNavigableRow() {
+    for (int i = 0; i < tagTree.getRowCount(); i++) {
+        if (isNavigableRow(i)) return i
+    }
+    return -1
+}
+
+TreeCellRenderer createTagRenderer() {
+    JLabel label = new JLabel()
+    label.setOpaque(true)
+    return new TreeCellRenderer() {
+        @Override
+        Component getTreeCellRendererComponent(JTree tree, Object value, boolean isSelected,
+                boolean expanded, boolean leaf, int rowIndex, boolean hasFocus) {
+            TagRow row = (value instanceof DefaultMutableTreeNode
+                    && ((DefaultMutableTreeNode) value).getUserObject() instanceof TagRow)
+                    ? (TagRow) ((DefaultMutableTreeNode) value).getUserObject() : null
+
+            // Simplify: use a single JLabel for the entire row
+            JLabel tagLabel = new JLabel()
+            tagLabel.setOpaque(true)
+            tagLabel.setFont(itemFont())
+            tagLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+
+            Color bgColor = mapBackground()
+
+            if (row == null || row.synthetic) {
+                tagLabel.setOpaque(false)
+                tagLabel.setText(row == null ? String.valueOf(value) : row.name)
+                tagLabel.setToolTipText(null)
+                tagLabel.setForeground(UITools.getTextColorForBackground(mapBackground()))
+                tagLabel.setFont(itemFont().deriveFont(Font.ITALIC, (float) (panelTextFontSize - 2)))
+                tagLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6))
+                return tagLabel
+            }
+
+            boolean hasChildren = value instanceof DefaultMutableTreeNode &&
+                    ((DefaultMutableTreeNode) value).getChildCount() > 0
+            boolean unused = isTagUnused(row.qualifiedName)
+
+            Color chip = chipColor(row)
+            if (unused && showUsageCounts) chip = blendColors(chip, mapBackground(), unusedTagFadeRatio)
+
+            String marker = assignedAll.contains(row.qualifiedName) ? markAll + " "
+                    : assignedSome.contains(row.qualifiedName) ? markSome + " " : ""
+            String star = isFavorite(row.qualifiedName) ? favoriteSymbol : ""
+            
+            tagLabel.setBackground(chip)
+            
+            Color textColor = UITools.getTextColorForBackground(chip)
+            if (isSelected) {
+                float brightness = (chip.getRed() * 0.299f + chip.getGreen() * 0.587f + chip.getBlue() * 0.114f) / 255f
+                textColor = brightness > 0.5f ? Color.BLACK : Color.WHITE
+            }
+            tagLabel.setForeground(textColor)
+            
+            String prefix = star + marker
+            String suffix = usageSuffix(row, hasChildren)
+            String highlighted = highlightedFragment(row.name)
+            if (highlighted == null) {
+                tagLabel.setText(prefix + row.name + suffix)
+            } else {
+                tagLabel.setText("<html>" + HtmlUtils.toXMLEscapedText(prefix) + highlighted
+                        + HtmlUtils.toXMLEscapedText(suffix) + "</html>")
+            }
+            tagLabel.setToolTipText(usageTooltip(row, hasChildren))
+
+            boolean armed = row.qualifiedName != null && row.qualifiedName.equals(armedDeleteQn)
+            
+            // Simplify: use a single Border for the entire row
+            if (isSelected) {
+                Color selectionBorder = new Color(0, 180, 0, 200)
+                tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(selectionBorder, 3),
+                        BorderFactory.createEmptyBorder(2, 8, 2, 8)))
+                tagLabel.setBackground(blendColors(chip, new Color(0, 255, 0), 0.08f))
+            } else if (armed) {
+                tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(Color.RED, 2),
+                        BorderFactory.createEmptyBorder(1, 8, 1, 8)))
+            } else {
+                tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(chip, 2),
+                        BorderFactory.createEmptyBorder(1, 8, 1, 8)))
+            }
+            
+            return tagLabel
+        }
+    }
+}
+
+Color chipColor(TagRow row) {
+    Color raw = parseTagColor(row.colorHex, row.qualifiedName ?: row.name)
+    if (raw.getAlpha() == 255) return raw
+    return blendColors(mapBackground(), new Color(raw.getRed(), raw.getGreen(), raw.getBlue()),
+            raw.getAlpha() / 255f)
+}
+
+Color parseTagColor(String hex, String content) {
+    if (hex == null || hex.length() < 7) return new Tag(content ?: "").getColor()
+    try {
+        int r = Integer.parseInt(hex.substring(1, 3), 16)
+        int g = Integer.parseInt(hex.substring(3, 5), 16)
+        int b = Integer.parseInt(hex.substring(5, 7), 16)
+        int a = hex.length() >= 9 ? Integer.parseInt(hex.substring(7, 9), 16) : 255
+        return new Color(r, g, b, a)
+    } catch (Throwable t) {
+        return new Tag(content ?: "").getColor()
+    }
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Tree model / rendering ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Assigning (the Edit-Tags role) ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+List<NodeModel> selectedMapNodes() {
+    def selection = boundMapView.getMapSelection()
+    return selection == null ? [] : new ArrayList<NodeModel>(selection.getSelection())
+}
+
+List<String> tagsOf(NodeModel nodeModel) {
+    return ProxyFactory.createNode(nodeModel, null).getTags().getTags()
+}
+
+// Add to Assigning section
+void updateTreeSelectionFromMap() {
+    if (tagTree == null || treeRootNode == null) return
+    
+    List<NodeModel> selected = selectedMapNodes()
+    if (selected.isEmpty()) {
+        // If no node is selected, clear tree selection
+        tagTree.clearSelection()
     return
 }
-mapCrawler.toggle()
 
-//↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Main singleton instance ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+    // Collect all tags from selected nodes
+    Set<String> allTags = new HashSet<String>()
+    selected.each { nodeModel ->
+        allTags.addAll(tagsOf(nodeModel))
+    }
+    
+    if (allTags.isEmpty()) {
+        tagTree.clearSelection()
+        return
+    }
+    
+    // Select the first tag (priority to tags with higher priority)
+    String firstTag = allTags.first()
+    
+    // Find and select the tag in the tree
+    DefaultMutableTreeNode node = findNodeByQn(treeRootNode, firstTag)
+    if (node != null) {
+        TreePath path = new TreePath(node.getPath())
+        // Unfold the path
+        TreePath parentPath = path.getParentPath()
+        while (parentPath != null && parentPath.getPathCount() > 1) {
+            tagTree.expandPath(parentPath)
+            parentPath = parentPath.getParentPath()
+        }
+        tagTree.setSelectionPath(path)
+        tagTree.scrollPathToVisible(path)
+    } else {
+        // If the tag is not in the tree (may be filtered),
+        // try to find another tag
+        for (String tag : allTags) {
+            node = findNodeByQn(treeRootNode, tag)
+            if (node != null) {
+                TreePath path = new TreePath(node.getPath())
+                TreePath parentPath = path.getParentPath()
+                while (parentPath != null && parentPath.getPathCount() > 1) {
+                    tagTree.expandPath(parentPath)
+                    parentPath = parentPath.getParentPath()
+                }
+                tagTree.setSelectionPath(path)
+                tagTree.scrollPathToVisible(path)
+                break
+            }
+        }
+    }
+}
+
+void updateAssignedMarks() {
+    if (tagTree == null) return
+
+    Set<String> markedBefore = new HashSet<String>(assignedAll)
+    markedBefore.addAll(assignedSome)
+
+    assignedAll.clear()
+    assignedSome.clear()
+    List<NodeModel> selected = selectedMapNodes()
+    if (!selected.isEmpty()) {
+        List<Set<String>> perNode = selected.collect { new HashSet<String>(tagsOf(it)) }
+        Set<String> union = new HashSet<String>()
+        perNode.each { union.addAll(it) }
+        union.each { qn ->
+            if (perNode.every { it.contains(qn) }) assignedAll.add(qn)
+            else assignedSome.add(qn)
+        }
+    }
+
+    Set<String> markedNow = new HashSet<String>(assignedAll)
+    markedNow.addAll(assignedSome)
+    Set<String> changed = new HashSet<String>(markedBefore)
+    changed.removeAll(markedNow)
+    Set<String> appeared = new HashSet<String>(markedNow)
+    appeared.removeAll(markedBefore)
+    changed.addAll(appeared)
+    remeasureRows(changed)
+
+    tagTree.repaint()
+
+    if (favoritesStrip != null) {
+        favoritesStrip.components.each { if (it instanceof JLabel) applyChipText((JLabel) it) }
+        favoritesStrip.repaint()
+    }
+    
+    // Remove call to updateTreeSelectionFromMap
+    // Node selection in the map no longer affects tree selection
+}
+
+void toggleTagOnSelection(TagRow row) {
+    if (row == null || row.synthetic || row.qualifiedName == null) return
+    toggleTagQn(row.qualifiedName)
+}
+
+void toggleTagQn(String qn) {
+    if (qn == null || qn.isEmpty()) return
+    List<NodeModel> selected = selectedMapNodes()
+    if (selected.isEmpty()) {
+        showStatus("No node selected in the map")
+        return
+    }
+    boolean allHave = selected.every { tagsOf(it).contains(qn) }
+    int touched = 0
+    selected.each { nodeModel ->
+        def tags = ProxyFactory.createNode(nodeModel, null).getTags()
+        if (allHave) {
+            if (tags.remove(qn)) touched++
+        } else if (!tags.getTags().contains(qn)) {
+            tags.add(qn)
+            touched++
+        }
+    }
+    showStatus((allHave ? "Removed '" : "Assigned '") + qn + (allHave ? "' from " : "' to ")
+            + touched + " node" + (touched == 1 ? "" : "s"))
+    updateAssignedMarks()
+    if (!allHave && rowByQn(qn) == null) scheduleRefresh()
+    if (!allHave) maybeCloseAfterInsert(touched)
+}
+
+void assignTagToSelection(TagRow row) {
+    if (row == null || row.synthetic || row.qualifiedName == null) return
+    assignTagQn(row.qualifiedName)
+}
+
+void assignTagQn(String qn) {
+    List<NodeModel> selected = selectedMapNodes()
+    if (selected.isEmpty()) {
+        showStatus("No node selected in the map")
+        return
+    }
+    int touched = 0
+    selected.each { nodeModel ->
+        def tags = ProxyFactory.createNode(nodeModel, null).getTags()
+        if (!tags.getTags().contains(qn)) {
+            tags.add(qn)
+            touched++
+        }
+    }
+    showStatus("Assigned '" + qn + "' to " + touched + " node" + (touched == 1 ? "" : "s"))
+    updateAssignedMarks()
+    if (rowByQn(qn) == null) scheduleRefresh()
+    maybeCloseAfterInsert(touched)
+}
+
+void removeTagFromSelection(TagRow row) {
+    if (row == null || row.synthetic || row.qualifiedName == null) return
+    removeTagQn(row.qualifiedName)
+}
+
+void removeTagQn(String qn) {
+    List<NodeModel> selected = selectedMapNodes()
+    if (selected.isEmpty()) {
+        showStatus("No node selected in the map")
+        return
+    }
+    int touched = 0
+    selected.each { nodeModel ->
+        if (ProxyFactory.createNode(nodeModel, null).getTags().remove(qn)) touched++
+    }
+    showStatus("Removed '" + qn + "' from " + touched + " node" + (touched == 1 ? "" : "s"))
+    updateAssignedMarks()
+}
+
+void commitFieldAction(boolean forceCreate) {
+    applyFilterText()
+
+    String text = filterField.getText().trim()
+    if (text.isEmpty()) return
+
+    TagRow target = forceCreate ? null : bestMatchRow()
+    filterField.setText("")
+
+    if (target != null) {
+        assignTagToSelection(target)
+        return
+    }
+    createAndAssignTag(text)
+}
+
+TagRow bestMatchRow() {
+    TagRow selected = selectedRow()
+    if (rowMatchesFilter(selected)) return selected
+
+    int first = firstNavigableRow()
+    if (first >= 0) return rowOf(tagTree.getPathForRow(first))
+
+    for (int i = 0; i < tagTree.getRowCount(); i++) {
+        TagRow row = rowOf(tagTree.getPathForRow(i))
+        if (row != null && !row.synthetic) return row
+    }
+    return null
+}
+
+void revealAncestorsOf(String qualifiedText) {
+    List<String> segments = qualifiedText.split(java.util.regex.Pattern.quote(separator())) as List<String>
+    for (int i = 1; i < segments.size(); i++) {
+        expandedQns.add(segments.subList(0, i).join(separator()))
+    }
+}
+
+void createAndAssignTag(String qualifiedText) {
+    revealAncestorsOf(qualifiedText)
+    List<NodeModel> selected = selectedMapNodes()
+    if (selected.isEmpty()) {
+        if (createMissingSegments(qualifiedText, true)) {
+            showStatus("Created '" + qualifiedText + "' (no node selected, nothing assigned)")
+        } else {
+            showStatus("'" + qualifiedText + "' already exists (no node selected, nothing assigned)")
+        }
+        scheduleRefresh()
+        return
+    }
+
+    createMissingSegments(qualifiedText, false)
+
+    int touched = 0
+    selected.each { nodeModel ->
+        def tags = ProxyFactory.createNode(nodeModel, null).getTags()
+        if (!tags.getTags().contains(qualifiedText)) {
+            tags.add(qualifiedText)
+            touched++
+        }
+    }
+    showStatus("Created and assigned '" + qualifiedText + "' to " + touched + " node" + (touched == 1 ? "" : "s"))
+    updateAssignedMarks()
+    scheduleRefresh()
+    maybeCloseAfterInsert(touched)
+}
+
+void loadPanelPreferences() {
+    try {
+        showUsageCounts = ResourceController.getResourceController()
+                .getBooleanProperty(SHOW_USAGE_COUNTS_KEY, showUsageCounts)
+    } catch (Throwable t) {
+    }
+}
+
+boolean isCloseAfterInsert() {
+    try {
+        return ResourceController.getResourceController()
+                .getBooleanProperty(CLOSE_AFTER_INSERT_KEY, closeAfterInsertDefault)
+    } catch (Throwable t) {
+        return closeAfterInsertDefault
+    }
+}
+
+void applyCloseAfterInsert(boolean enabled) {
+    try {
+        ResourceController.getResourceController().setProperty(CLOSE_AFTER_INSERT_KEY, enabled)
+        showStatus(enabled ? "The panel will close as soon as a tag is assigned"
+                           : "The panel stays open after assigning")
+    } catch (Throwable t) {
+        showStatus("Could not save the option: " + t.getMessage())
+    }
+}
+
+void maybeCloseAfterInsert(int assignedCount) {
+    if (assignedCount <= 0 || tagPanel == null) return
+    if (!isCloseAfterInsert()) return
+    closePanel()
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Assigning (the Edit-Tags role) ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
 
 
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Colour policy (#2950) ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
 
-// ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ MAIN CLASS = SimpleMapCrawler ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-class SimpleMapCrawler {
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Class variables & fields ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    
-    // Floating breadcrumb and selection polling
-    private JLabel dragGhostLabel = null
-    private JWindow dragGhostWindow = null
-    private boolean isDragging = false
-    private String draggedTag = null
-    private Point dragStartPoint = null
-    private int dragSourceRow = -1
-    private boolean mapNodeRowAdded = false
-    private int mapNodeRowIndex = -1
-    
-    // Tag operations
-    private JMenuItem tagMenuItem
-    private KeyStroke tagShortcut = KeyStroke.getKeyStroke(KeyEvent.VK_F8, 0)
-    
-    // Map selection polling
-    private Timer mapSelectionPollingTimer = null
-    private Node lastPolledMapNode = null
-    
-    // Breadcrumb only mode
-    private boolean showOnlyBreadcrumbs = false
-    private JPanel breadcrumbOnlyPanel = null
-    private JList<Node> breadcrumbJList = null
-    private DefaultListModel<Node> ancestorsModel = new DefaultListModel<>()
-    private JCheckBox breadcrumbOnlyCheck = null
-    private JTextField searchField
-    private JTable resultsTable
-    private DefaultTableModel tableModel
-    private String baseDir
-    private boolean matchCase = false
-    private boolean wholeWord = false
-    private JCheckBox coreCheck, detailsCheck, noteCheck
-    private JRadioButton folderRadio, openMapsRadio, selectedDescRadio, selectedSibRadio, rootRadio
-    private ButtonGroup sourceGroup
-    private JRadioButton allScopeRadio, styleScopeRadio
-    private JTextField styleField
-    private JButton folderChooserBtn
-    private JLabel folderLabel
-    private JCheckBox matchCaseCB, wholeWordCB
-    private JEditorPane previewCore
-    private JEditorPane previewDetails
-    private JEditorPane previewNote
-    private JPanel tagViewer
-    private JPanel breadcrumbPanel
-    private JLabel styleLabel
-    private ScrollableTextPanel textPanel
-    private JPanel leftPreviewPanel
-    private JSplitPane innerSplitPane
-    private JScrollPane previewScrollPane
-    private static final Map<String, Color> PATH_COLORS = new ConcurrentHashMap()
-    private Container originalContentPane = null
-    private JSplitPane currentSplitPane = null
-    private int lastDividerLocation = -1
-    private int savedDividerLocation = -1
-    private Dimension originalContentPaneMinSize = null
-    private JScrollPane tableScroll
-    private JSplitPane verticalSplitPane = null
-    private int lastVerticalDividerLocation = -1
-    private boolean disableTooltips = false
-    private boolean hideNodeColumn = false
-    private boolean hideDetailsPreview = false
-    private boolean hideNotePreview = false
-    private boolean hidePreviewPanel = false
-    private boolean hideFileColumn = false
-    private boolean hideStyleColumn = false
-    private boolean hidePathColumn = false
-    private boolean hideDateColumn = false
-    private boolean hideDateCreatedColumn = false
-    private boolean hideIconsColumn = false
-    private boolean hideTagsColumn = false
-    private boolean hideDetailsColumn = false
-    private boolean hideNoteColumn = false
-    private JDialog settingsDialog = null
-    private JDialog columnVisibilityDialog
-    private int lastPreviewDividerLocation = -1
-    private Timer previewDebouncer = null
-    private int pendingRow = -1
-    private Timer filterDebouncer = null
-    private int baseLineHeight = 20
-    private Map<Integer, Integer> rowMaxLinesCache = new ConcurrentHashMap()
-    private JTextField filterField
-    private JButton upButton
-    private JButton downButton
-    private TableRowSorter<TableModel> rowSorter
-    private String currentFilterText = ""
-    private String lastSearchKeyword = ""
-    private JLabel resultCountLabel
-    private Font fontFileColumn = null
-    private Font fontStyleColumn = null
-    private Font fontPathColumn = null
-    private Font fontWeightColumn = null
-    private Font fontPreviewCore = null
-    private Font fontPreviewDetails = null
-    private Font fontPreviewNote = null
-    private Font fontBreadcrumb = null
-    private Font fontDateColumn = null
-    private Font fontDateCreatedColumn = null
-    private Font fontIconsColumn = null
-    private Font fontTagsColumn = null
-    private Font fontDetailsColumn = null
-    private Font fontNoteColumn = null
-    private boolean trimMode = true
-    private boolean singleLineMode = false
-    private boolean fullMode = false
-    private int trimLength = 80
-    private int ancestorTrimLength = 30
-    private JToggleButton trimBtn, singleBtn, fullBtn
-    private JSpinner trimSpinner
-    private JSpinner ancestorTrimSpinner
-    private java.util.List<String> searchHistory = []
-    private java.util.List<String> styleHistory = []
-    private java.util.List<String> filterHistory = []
-    private AutoCompleteDecorator searchAutoComplete
-    private AutoCompleteDecorator styleAutoComplete
-    private AutoCompleteDecorator filterAutoComplete
-    private Timer hoverTimer
-    private int hoverRow = -1
-    private String lastSelectedNodeId = null
-    private String lastBreadcrumbHtml = null
-    private JPanel lastBreadcrumbPanel = null
-    private Timer columnResizeTimer = null
-    private boolean reverseAncestorOrder = false
-    private JToggleButton reversePathBtn
-    private boolean useVisibleRootOnly = false
-    private JToggleButton ancestorModeBtn
-    private Map<String, String> pathCache = new ConcurrentHashMap()
-    private Map<String, Integer> rowHeightCache = new ConcurrentHashMap()
-    private Map<String, Map<String, Object>> previewCache = new ConcurrentHashMap()
-    private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm")
-    private JList<ColumnItem> columnList
-    private DefaultListModel<ColumnItem> columnListModel
-    private JLabel filterResultLabel
-    private Map<String, Integer> storedColumnWidths = new ConcurrentHashMap<>()
-    private List<Integer> defaultColumnWidths = new ArrayList<>()
-    private List<Integer> currentColumnWidths = new ArrayList<>()
-    private int totalDefaultWidth = 0
-    private boolean adjusting = false    
-    
-   
-   
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Helper: Get node under mouse in map view ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private Node getNodeAtPointInMapView(Point screenPoint) {
-        try {
-            def mapView = Controller.getCurrentController().getMapViewManager().getMapViewComponent()
-            if (mapView == null) return null
-            Point localPoint = new Point(screenPoint)
-            SwingUtilities.convertPointFromScreen(localPoint, mapView)
-            def nodeView = mapView.getNodeViewAt(localPoint)
-            if (nodeView != null) {
-                return nodeView.getNode()
-            }
-            def detected = mapView.detectObject(localPoint)
-            if (detected instanceof org.freeplane.view.swing.map.NodeView) {
-                return ((org.freeplane.view.swing.map.NodeView) detected).getNode()
-            }
-            def selectedNodes = ScriptUtils.c().selecteds
-            if (selectedNodes && !selectedNodes.isEmpty()) {
-                return selectedNodes[0]
-            }
-            return null
-        } catch (Exception ex) {
-            println "Error finding node: ${ex.message}"
-            return null
-        }
+String newTagColorMode() {
+    try {
+        return ResourceController.getResourceController()
+                .getProperty(NEW_TAG_COLOR_MODE_KEY, newTagColorModeDefault)
+    } catch (Throwable t) {
+        return newTagColorModeDefault
     }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Helper: Get node under mouse in map view ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Tag Drag & Drop: Mouse released handler ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    void mouseReleased(MouseEvent e) {
-        if (isDragging && draggedTag != null) {
-            Node targetNode = null
-            int dropRow = resultsTable.rowAtPoint(e.getPoint())
-            if (dropRow != -1 && dropRow != dragSourceRow) {
-                targetNode = getNodeFromRow(dropRow)
-            }
-            if (targetNode == null) {
-                try {
-                    def mapView = Controller.getCurrentController().getMapViewManager().getMapViewComponent()
-                    if (mapView != null) {
-                        Point mousePoint = e.getLocationOnScreen()
-                        Point localPoint = new Point(mousePoint)
-                        SwingUtilities.convertPointFromScreen(localPoint, mapView)
-                        def nodeView = mapView.getNodeViewAt(localPoint)
-                        if (nodeView != null) {
-                            targetNode = nodeView.getNode()
-                            println "✅ Node found (getNodeViewAt): ${targetNode.getPlainText()}"
-                        }
-                        if (targetNode == null) {
-                            def detected = mapView.detectObject(localPoint)
-                            if (detected instanceof org.freeplane.view.swing.map.NodeView) {
-                                targetNode = ((org.freeplane.view.swing.map.NodeView) detected).getNode()
-                                println "✅ Node found (detectObject): ${targetNode.getPlainText()}"
-                            }
-                        }
-                        if (targetNode == null) {
-                            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                                "⚠️ Drop on a node in the main map.", 
-                                "Error", JOptionPane.WARNING_MESSAGE)
-                            cleanupDrag()
-                            return
-                        }
-                    }
-                } catch (Exception ex) {
-                    println "Error detecting node in main panel: ${ex.message}"
-                    ex.printStackTrace()
-                }
-            }
-            if (targetNode != null) {
-                def oldSelection = ScriptUtils.c().selecteds
-                Node oldNode = (oldSelection && !oldSelection.isEmpty()) ? oldSelection[0] : null
-                try {
-                    ScriptUtils.c().select(targetNode)
-                    try {
-                        targetNode.tags.add(draggedTag)
-                    } catch (Exception ex1) {
-                        try {
-                            def controller = org.freeplane.features.tag.TagController.getController()
-                            if (controller != null) {
-                                controller.addTag(targetNode.getDelegate(), draggedTag)
-                            } else {
-                                targetNode.tags.add(draggedTag)
-                            }
-                        } catch (Exception ex2) {
-                            targetNode.tags.add(draggedTag)
-                        }
-                    }
-                    if (oldNode != null) {
-                        ScriptUtils.c().select(oldNode)
-                    }
-                    if (dropRow != -1 && dropRow != dragSourceRow) {
-                        int modelRow = resultsTable.convertRowIndexToModel(dropRow)
-                        String tagsString = getSortedTagsString(targetNode)
-                        tableModel.setValueAt(tagsString, modelRow, 6)
-                        resultsTable.setRowSelectionInterval(dropRow, dropRow)
-                        showNodeDetails(dropRow)
-                        updateTableBreadcrumb(targetNode)
-                    } else {
-                        if (dragSourceRow != -1) {
-                            int modelRow = resultsTable.convertRowIndexToModel(dragSourceRow)
-                            Node sourceNode = getNodeFromRow(dragSourceRow)
-                            if (sourceNode != null) {
-                                String tagsString = getSortedTagsString(sourceNode)
-                                tableModel.setValueAt(tagsString, modelRow, 6)
-                            }
-                        }
-                        updateTableBreadcrumb(targetNode)
-                        int selectedRow = resultsTable.getSelectedRow()
-                        if (selectedRow != -1) {
-                            showNodeDetails(selectedRow)
-                        }
-                    }
-                } catch (Exception ex) {
-                    if (oldNode != null) {
-                        ScriptUtils.c().select(oldNode)
-                    }
-                    JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                        "❌ Error: ${ex.message}", 
-                        "Error", JOptionPane.ERROR_MESSAGE)
-                    ex.printStackTrace()
-                }
-            }
-            cleanupDrag()
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Tag Drag & Drop: Mouse released handler ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Update table breadcrumb ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void updateTableBreadcrumb(Node node) {
-        if (node == null) {
-            breadcrumbPanel.removeAll()
-            breadcrumbPanel.revalidate()
-            breadcrumbPanel.repaint()
-            return
-        }
-        breadcrumbPanel.removeAll()
-        try {
-            def fullPath = node.getPathToRoot()
-            if (fullPath && !fullPath[0].isRoot()) {
-                fullPath = fullPath.reverse()
-            }
-            def displayPath = fullPath.size() > 1 ? fullPath[0..-2] : []
-            if (displayPath.isEmpty()) {
-                JPanel tempPanel = new JPanel()
-                tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
-                tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                JLabel rootLabel = new JLabel("📁 Root")
-                if (fontBreadcrumb != null) {
-                    rootLabel.setFont(fontBreadcrumb.deriveFont(Font.BOLD, fontBreadcrumb.getSize() + 2))
-                } else {
-                    rootLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
-                }
-                rootLabel.setForeground(new Color(0, 100, 200))
-                rootLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
-                tempPanel.add(rootLabel)
-                breadcrumbPanel.add(tempPanel)
-                breadcrumbPanel.revalidate()
-                breadcrumbPanel.repaint()
-                breadcrumbPanel.setVisible(true)
-                return
-            }
-            if (useVisibleRootOnly) {
-                def viewRoot = getActiveViewRoot()
-                if (viewRoot != null && node.mindMap == viewRoot.mindMap) {
-                    int idx = fullPath.indexOf(viewRoot)
-                    if (idx != -1) {
-                        if (idx <= displayPath.size()) {
-                            displayPath = displayPath[idx..-1]
-                        } else {
-                            displayPath = []
-                        }
-                    }
-                }
-            }
-            if (displayPath.isEmpty()) {
-                JPanel tempPanel = new JPanel()
-                tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
-                tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                JLabel rootLabel = new JLabel("📁 Root")
-                if (fontBreadcrumb != null) {
-                    rootLabel.setFont(fontBreadcrumb.deriveFont(Font.BOLD, fontBreadcrumb.getSize() + 2))
-                } else {
-                    rootLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
-                }
-                rootLabel.setForeground(new Color(0, 100, 200))
-                rootLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
-                tempPanel.add(rootLabel)
-                breadcrumbPanel.add(tempPanel)
-                breadcrumbPanel.revalidate()
-                breadcrumbPanel.repaint()
-                breadcrumbPanel.setVisible(true)
-                return
-            }
-            int maxNodes = 5
-            int start = Math.max(0, displayPath.size() - maxNodes)
-            JPanel tempPanel = new JPanel()
-            tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
-            tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            if (start > 0) {
-                JLabel ellipsisLabel = new JLabel(" ... ")
-                ellipsisLabel.setFont(ellipsisLabel.getFont().deriveFont(Font.BOLD))
-                tempPanel.add(ellipsisLabel)
-            }
-            ButtonGroup bg = new ButtonGroup()
-            for (int i = start; i < displayPath.size(); i++) {
-                Node n = displayPath.get(i)
-                String nodeText = n.getPlainText()
-                String shortText = nodeText
-                if (ancestorTrimLength > 0 && nodeText.length() > ancestorTrimLength) {
-                    shortText = TextUtils.getShortText(nodeText, ancestorTrimLength, "\u2026")
-                }
-                JRadioButton btn = new JRadioButton(shortText)
-                btn.setToolTipText(nodeText)
-                if (fontBreadcrumb != null) btn.setFont(fontBreadcrumb)
-                else btn.setFont(btn.getFont().deriveFont(Font.PLAIN))
-                Color bgColor = getNodeBackgroundColor(n)
-                if (bgColor != null) {
-                    btn.setBackground(bgColor)
-                    btn.setForeground(getForegroundForBackground(bgColor))
-                    btn.setOpaque(true)
-                    btn.setContentAreaFilled(true)
-                } else {
-                    btn.setOpaque(false)
-                    btn.setForeground(UIManager.getColor("Label.foreground"))
-                }
-                Color borderColor = getBorderColorForNode(n)
-                Border leftBorder = BorderFactory.createMatteBorder(0, 5, 0, 0, borderColor)
-                Border padding = BorderFactory.createEmptyBorder(2, 6, 2, 6)
-                btn.setBorder(BorderFactory.createCompoundBorder(leftBorder, padding))
-                btn.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                btn.setHorizontalAlignment(SwingConstants.RIGHT)
-                btn.setHorizontalTextPosition(SwingConstants.LEFT)
-                btn.putClientProperty("node", n)
-                final Node target = n
-                final JRadioButton currentBtn = btn
-                btn.addActionListener({ e ->
-                    for (Component comp : tempPanel.getComponents()) {
-                        if (comp instanceof JRadioButton) {
-                            ((JRadioButton)comp).setForeground(UIManager.getColor("Label.foreground"))
-                            ((JRadioButton)comp).setFont(((JRadioButton)comp).getFont().deriveFont(Font.PLAIN))
-                            Node oldNode = (Node) ((JRadioButton)comp).getClientProperty("node")
-                            if (oldNode != null) {
-                                Color oldBg = getNodeBackgroundColor(oldNode)
-                                if (oldBg != null) {
-                                    ((JRadioButton)comp).setBackground(oldBg)
-                                    ((JRadioButton)comp).setForeground(getForegroundForBackground(oldBg))
-                                } else {
-                                    ((JRadioButton)comp).setOpaque(false)
-                                }
-                            }
-                        }
-                    }
-                    currentBtn.setForeground(Color.BLUE)
-                    currentBtn.setFont(currentBtn.getFont().deriveFont(Font.BOLD))
-                    try {
-                        ScriptUtils.c().select(target)
-                        def mapFile = target.getMindMap().getFile()
-                        if (mapFile) {
-                            def uri = mapFile.toURI().toString() + "#" + target.getId()
-                            def link = new org.freeplane.core.util.Hyperlink(new URI(uri))
-                            org.freeplane.features.url.UrlManager.getController().loadHyperlink(link)
-                            SwingUtilities.invokeLater(new Runnable() {
-                                void run() {
-                                    if (resultsTable != null && resultsTable.isShowing()) {
-                                        resultsTable.requestFocusInWindow()
-                                    }
-                                }
-                            })
-                        }
-                    } catch (Exception ex) { ex.printStackTrace() }
-                })
-                tempPanel.add(btn)
-                bg.add(btn)
-            }
-            for (Component comp : tempPanel.getComponents()) {
-                if (comp instanceof JRadioButton) {
-                    Node storedNode = (Node) ((JRadioButton)comp).getClientProperty("node")
-                    if (storedNode == node) {
-                        ((JRadioButton)comp).setSelected(true)
-                        ((JRadioButton)comp).setForeground(Color.BLUE)
-                        ((JRadioButton)comp).setFont(((JRadioButton)comp).getFont().deriveFont(Font.BOLD))
-                        break
-                    }
-                }
-            }
-            breadcrumbPanel.add(tempPanel, BorderLayout.CENTER)
-        } catch (Exception e) {
-            JPanel tempPanel = new JPanel()
-            tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
-            tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            JLabel rootLabel = new JLabel("📁 " + node.getPlainText())
-            if (fontBreadcrumb != null) {
-                rootLabel.setFont(fontBreadcrumb)
-            } else {
-                rootLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12))
-            }
-            tempPanel.add(rootLabel)
-            breadcrumbPanel.add(tempPanel)
-            System.err.println("Breadcrumb error: ${e.message}")
-        }
-        breadcrumbPanel.revalidate()
-        breadcrumbPanel.repaint()
-        breadcrumbPanel.setVisible(true)
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Update table breadcrumb ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Setup tag drag and drop on results table ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void setupTagDragAndDrop() {
-        if (resultsTable == null) return
-        resultsTable.addMouseListener(new MouseAdapter() {
-            void mouseClicked(MouseEvent e) {
-                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                    int row = resultsTable.rowAtPoint(e.getPoint())
-                    if (row != -1) {
-                        int col = resultsTable.columnAtPoint(e.getPoint())
-                        if (col == resultsTable.convertColumnIndexToView(6)) {
-                            int modelRow = resultsTable.convertRowIndexToModel(row)
-                            Object tagsValue = tableModel.getValueAt(modelRow, 6)
-                            if (tagsValue != null && tagsValue.toString().trim().length() > 0) {
-                                String tagName = extractTagName(tagsValue.toString())
-                                if (tagName != null && !isDragging) {
-                                    addTagToSelectedNodes(tagName)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            void mousePressed(MouseEvent e) {
-                if (SwingUtilities.isLeftMouseButton(e)) {
-                    int row = resultsTable.rowAtPoint(e.getPoint())
-                    if (row != -1) {
-                        int col = resultsTable.columnAtPoint(e.getPoint())
-                        if (col == resultsTable.convertColumnIndexToView(6)) {
-                            int modelRow = resultsTable.convertRowIndexToModel(row)
-                            Object tagsValue = tableModel.getValueAt(modelRow, 6)
-                            if (tagsValue != null && tagsValue.toString().trim().length() > 0) {
-                                String tagName = extractTagName(tagsValue.toString())
-                                if (tagName != null) {
-                                    draggedTag = tagName
-                                    dragSourceRow = row
-                                    dragStartPoint = e.getPoint()
-                                    resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            void mouseReleased(MouseEvent e) {
-                if (isDragging && draggedTag != null) {
-                    Node targetNode = null
-                    int dropRow = resultsTable.rowAtPoint(e.getPoint())
-                    if (dropRow != -1 && dropRow != dragSourceRow) {
-                        targetNode = getNodeFromRow(dropRow)
-                    }
-                    if (targetNode == null) {
-                        def selectedNodes = ScriptUtils.c().selecteds
-                        if (selectedNodes && !selectedNodes.isEmpty()) {
-                            targetNode = selectedNodes[0]
-                        }
-                    }
-                    if (targetNode != null) {
-                        def oldSelection = ScriptUtils.c().selecteds
-                        Node oldNode = (oldSelection && !oldSelection.isEmpty()) ? oldSelection[0] : null
-                        try {
-                            ScriptUtils.c().select(targetNode)
-                            try {
-                                targetNode.tags.add(draggedTag)
-                            } catch (Exception ex1) {
-                                try {
-                                    def controller = org.freeplane.features.tag.TagController.getController()
-                                    if (controller != null) {
-                                        controller.addTag(targetNode.getDelegate(), draggedTag)
-                                    } else {
-                                        targetNode.tags.add(draggedTag)
-                                    }
-                                } catch (Exception ex2) {
-                                    targetNode.tags.add(draggedTag)
-                                }
-                            }
-                            if (oldNode != null) {
-                                ScriptUtils.c().select(oldNode)
-                            }
-                            if (dropRow != -1 && dropRow != dragSourceRow) {
-                                int modelRow = resultsTable.convertRowIndexToModel(dropRow)
-                                String tagsString = getSortedTagsString(targetNode)
-                                tableModel.setValueAt(tagsString, modelRow, 6)
-                                resultsTable.setRowSelectionInterval(dropRow, dropRow)
-                                showNodeDetails(dropRow)
-                                updateTableBreadcrumb(targetNode)
-                            }
-                        } catch (Exception ex) {
-                            if (oldNode != null) {
-                                ScriptUtils.c().select(oldNode)
-                            }
-                            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                                "❌ Error: ${ex.message}", 
-                                "Error", JOptionPane.ERROR_MESSAGE)
-                            ex.printStackTrace()
-                        }
-                    } else {
-                        JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                            "⚠️ No node found to add tag.", 
-                            "Error", JOptionPane.WARNING_MESSAGE)
-                    }
-                    cleanupDrag()
-                }
-            }
-        })
-        resultsTable.addMouseMotionListener(new MouseMotionAdapter() {
-            void mouseDragged(MouseEvent e) {
-                if (draggedTag != null && dragStartPoint != null) {
-                    Point currentPoint = e.getPoint()
-                    int distance = (int) dragStartPoint.distance(currentPoint)
-                    if (distance > 10 && !isDragging) {
-                        startDrag(e)
-                    }
-                    if (isDragging) {
-                        updateDragGhost(e)
-                        def selectedNodes = ScriptUtils.c().selecteds
-                        if (selectedNodes && !selectedNodes.isEmpty()) {
-                            resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
-                            if (dragSourceRow != -1) {
-                                resultsTable.setRowSelectionInterval(dragSourceRow, dragSourceRow)
-                            }
-                        } else {
-                            resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR))
-                        }
-                    }
-                }
-            }
-            void mouseMoved(MouseEvent e) {
-                int col = resultsTable.columnAtPoint(e.getPoint())
-                if (col == resultsTable.convertColumnIndexToView(6)) {
-                    int row = resultsTable.rowAtPoint(e.getPoint())
-                    if (row != -1) {
-                        int modelRow = resultsTable.convertRowIndexToModel(row)
-                        Object tagsValue = tableModel.getValueAt(modelRow, 6)
-                        if (tagsValue != null && tagsValue.toString().trim().length() > 0) {
-                            resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
-                            return
-                        }
-                    }
-                }
-                resultsTable.setCursor(Cursor.getDefaultCursor())
-            }
-        })
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Setup tag drag and drop on results table ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Add tag to selected nodes ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void addTagToSelectedNodes(String tagName) {
-        if (!tagName || tagName.isEmpty()) return
-        def selectedNodes = ScriptUtils.c().selecteds
-        if (!selectedNodes || selectedNodes.isEmpty()) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "⚠️ No node selected in the main map.", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        int count = 0
-        for (def targetNode in selectedNodes) {
-            try {
-                def controller = org.freeplane.features.tag.TagController.getController()
-                if (controller) {
-                    controller.addTag(targetNode.getDelegate(), tagName)
-                    count++
-                } else {
-                    targetNode.tags.add(tagName)
-                    count++
-                }
-            } catch (Exception ex) {
-                try {
-                    targetNode.tags.add(tagName)
-                    count++
-                } catch (Exception ex2) {}
-            }
-        }
-        if (count > 0) {
-            if (dragSourceRow != -1) {
-                int modelRow = resultsTable.convertRowIndexToModel(dragSourceRow)
-                Node sourceNode = getNodeFromRow(dragSourceRow)
-                if (sourceNode != null) {
-                    String tagsString = getSortedTagsString(sourceNode)
-                    tableModel.setValueAt(tagsString, modelRow, 6)
-                }
-            }
-            int selectedRow = resultsTable.getSelectedRow()
-            if (selectedRow != -1) {
-                showNodeDetails(selectedRow)
-            }
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Add tag to selected nodes ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Start drag operation ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void startDrag(MouseEvent e) {
-        isDragging = true
-        resultsTable.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
-        dragGhostWindow = new JWindow()
-        dragGhostWindow.setAlwaysOnTop(true)
-        dragGhostWindow.setBackground(new Color(0, 0, 0, 0))
-        JPanel ghostPanel = new JPanel()
-        ghostPanel.setBackground(new Color(255, 200, 0, 220))
-        ghostPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(Color.ORANGE, 2),
-            BorderFactory.createEmptyBorder(5, 10, 5, 10)
-        ))
-        ghostPanel.setOpaque(true)
-        JLabel ghostLabel = new JLabel("🏷️ " + draggedTag)
-        ghostLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
-        ghostLabel.setForeground(Color.BLACK)
-        ghostPanel.add(ghostLabel)
-        dragGhostWindow.add(ghostPanel)
-        dragGhostWindow.pack()
-        Point mouseLoc = MouseInfo.getPointerInfo().getLocation()
-        dragGhostWindow.setLocation(mouseLoc.x - 10, mouseLoc.y - 10)
-        dragGhostWindow.setVisible(true)
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Start drag operation ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Update drag ghost position ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void updateDragGhost(MouseEvent e) {
-        if (dragGhostWindow != null && dragGhostWindow.isVisible()) {
-            Point mouseLoc = MouseInfo.getPointerInfo().getLocation()
-            dragGhostWindow.setLocation(mouseLoc.x - 10, mouseLoc.y - 10)
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Update drag ghost position ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Clean up drag state ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void cleanupDrag() {
-        isDragging = false
-        draggedTag = null
-        dragStartPoint = null
-        dragSourceRow = -1
-        resultsTable.setCursor(Cursor.getDefaultCursor())
-        if (dragGhostWindow != null) {
-            dragGhostWindow.dispose()
-            dragGhostWindow = null
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Clean up drag state ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Get node from table row ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private Node getNodeFromRow(int viewRow) {
-        if (viewRow == -1) return null
-        int modelRow = resultsTable.convertRowIndexToModel(viewRow)
-        Object value = tableModel.getValueAt(modelRow, 9)
-        return (value instanceof Object[]) ? ((Object[])value)[0] as Node : 
-               (value instanceof Node ? value as Node : null)
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Get node from table row ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Extract tag name from tags string ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private String extractTagName(String tagsString) {
-        if (tagsString == null || tagsString.trim().isEmpty()) return null
-        def tagPattern = ~/TagIcon\s*\[tag=([^,\]]+)[,\]]/
-        def matcher = (tagsString =~ tagPattern)
-        if (matcher.find()) {
-            return matcher.group(1).trim()
-        }
-        if (!tagsString.contains("TagIcon") && !tagsString.contains("font=")) {
-            def parts = tagsString.split("\\s*,\\s*")
-            if (parts.length > 0) {
-                return parts[0].trim()
-            }
-        }
+}
+
+String chosenFixedColor() {
+    try {
+        return ResourceController.getResourceController().getProperty(NEW_TAG_COLOR_KEY, null)
+    } catch (Throwable t) {
         return null
     }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Extract tag name from tags string ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Update tag column ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void updateTagColumn(int row) {
-        int modelRow = resultsTable.convertRowIndexToModel(row)
-        Object value = tableModel.getValueAt(modelRow, 9)
-        Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : 
-                    (value instanceof Node ? value as Node : null)
-        if (node != null) {
-            String tagsString = getSortedTagsString(node)
-            tableModel.setValueAt(tagsString, modelRow, 6)
-            resultsTable.repaint()
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Update tag column ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Highlight / Clear drop target ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void highlightDropTarget(int row) {
-        clearDropHighlight()
-        resultsTable.setRowSelectionInterval(row, row)
-        resultsTable.setSelectionBackground(new Color(100, 255, 100, 150))
-        resultsTable.repaint()
-    }
-    
-    private void clearDropHighlight() {
-        resultsTable.setSelectionBackground(new Color(200, 255, 200))
-        int selectedRow = resultsTable.getSelectedRow()
-        if (selectedRow != -1) {
-            resultsTable.setRowSelectionInterval(selectedRow, selectedRow)
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Highlight / Clear drop target ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Copy and paste tag ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void copyTagFromSelectedRow() {
-        int selectedRow = resultsTable.getSelectedRow()
-        if (selectedRow == -1) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "Please select a row in the results table first.", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        int modelRow = resultsTable.convertRowIndexToModel(selectedRow)
-        Object tagsValue = tableModel.getValueAt(modelRow, 6)
-        if (tagsValue == null || tagsValue.toString().trim().length() == 0) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "⚠️ This node has no tags!", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        String tagsString = tagsValue.toString().trim()
-        def tagPattern = ~/TagIcon\s*\[tag=([^,\]]+)[,\]]/
-        def matcher = (tagsString =~ tagPattern)
-        if (matcher.find()) {
-            copiedTag = matcher.group(1).trim()
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "✅ Tag \"${copiedTag}\" copied.", 
-                "Success", JOptionPane.INFORMATION_MESSAGE)
-        } else {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "⚠️ No tag found in this row.", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-        }
-    }
-    
-    private void pasteTagToSelectedRows() {
-        if (copiedTag == null || copiedTag.isEmpty()) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "⚠️ No tag has been copied.\nPlease copy a tag first.", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        int[] selectedRows = resultsTable.getSelectedRows()
-        if (selectedRows == null || selectedRows.length == 0) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "Please select at least one row in the results table.", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        int count = 0
-        for (int viewRow : selectedRows) {
-            int modelRow = resultsTable.convertRowIndexToModel(viewRow)
-            Object value = tableModel.getValueAt(modelRow, 9)
-            Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-            if (node != null) {
-                try {
-                    def controller = org.freeplane.features.tag.TagController.getController()
-                    if (controller) {
-                        controller.addTag(node.getDelegate(), copiedTag)
-                        count++
-                    } else {
-                        try {
-                            node.tags.add(copiedTag)
-                            count++
-                        } catch (Exception e2) {
-                            System.err.println("Error tagging node: ${node.getText()}")
-                        }
-                    }
-                } catch (Exception e) {
-                    try {
-                        node.tags.add(copiedTag)
-                        count++
-                    } catch (Exception e2) {
-                        System.err.println("Error tagging node: ${node.getText()}")
-                    }
-                }
-            }
-        }
-    }  
-        
-    // ========== Copy/paste tag variables ==========
-    
-    private String copiedTag = null
-    private KeyStroke copyTagShortcut = KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK)
-    private KeyStroke pasteTagShortcut = KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK)
-    
-    // ====== Helper: Add tag to node ======
-    private void addTagToNode(Node targetNode, String tagName) {
-        if (targetNode == null || tagName == null || tagName.isEmpty()) return
-        
-        try {
-            def controller = org.freeplane.features.tag.TagController.getController()
-            if (controller) {
-                controller.addTag(targetNode.getDelegate(), tagName)
-            } else {
-                try {
-                    targetNode.tags.add(tagName)
-                } catch (Exception e2) {
-                    System.err.println("Error tagging node: ${targetNode.getText()}")
-                }
-            }
-        } catch (Exception e) {
-            try {
-                targetNode.tags.add(tagName)
-            } catch (Exception e2) {
-                System.err.println("Error tagging node: ${targetNode.getText()}")
-            }
-        }
-    }
-    
-    // ========== Manage map node row in table ==========
-    private void addMapNodeRow(Node node) {
-        if (node == null) {
-            removeMapNodeRow()
-            return
-        }
-        if (mapNodeRowAdded) {
-            updateMapNodeRow(node)
-            return
-        }
-        String fileName = node.mindMap.file?.name ?: "Unnamed"
-        String styleName = node.style?.name ?: "(no style)"
-        String pathStr = getAncestorsPathCached(node)
-        String modifiedDate = node.getLastModifiedAt() ? dateFormat.format(node.getLastModifiedAt()) : ""
-        String createdDate = node.getCreatedAt() ? dateFormat.format(node.getCreatedAt()) : ""
-        String detailsText = node.details?.plain ?: ""
-        String noteText = node.note?.plain ?: ""
-        String tagsString = getSortedTagsString(node)
-        tableModel.insertRow(0, [fileName, styleName, pathStr, modifiedDate, createdDate, "", tagsString, detailsText, noteText, [node] as Object[]] as Object[])
-        mapNodeRowAdded = true
-        mapNodeRowIndex = 0
-        resultsTable.setRowSelectionInterval(0, 0)
-        resultsTable.repaint()
-    }
-    
-    private void updateMapNodeRow(Node node) {
-        if (!mapNodeRowAdded || mapNodeRowIndex == -1) {
-            addMapNodeRow(node)
-            return
-        }
-        String fileName = node.mindMap.file?.name ?: "Unnamed"
-        String styleName = node.style?.name ?: "(no style)"
-        String pathStr = getAncestorsPathCached(node)
-        String modifiedDate = node.getLastModifiedAt() ? dateFormat.format(node.getLastModifiedAt()) : ""
-        String createdDate = node.getCreatedAt() ? dateFormat.format(node.getCreatedAt()) : ""
-        String detailsText = node.details?.plain ?: ""
-        String noteText = node.note?.plain ?: ""
-        String tagsString = getSortedTagsString(node)
-        tableModel.setValueAt(fileName, mapNodeRowIndex, 0)
-        tableModel.setValueAt(styleName, mapNodeRowIndex, 1)
-        tableModel.setValueAt(pathStr, mapNodeRowIndex, 2)
-        tableModel.setValueAt(modifiedDate, mapNodeRowIndex, 3)
-        tableModel.setValueAt(createdDate, mapNodeRowIndex, 4)
-        tableModel.setValueAt("", mapNodeRowIndex, 5)
-        tableModel.setValueAt(tagsString, mapNodeRowIndex, 6)
-        tableModel.setValueAt(detailsText, mapNodeRowIndex, 7)
-        tableModel.setValueAt(noteText, mapNodeRowIndex, 8)
-        tableModel.setValueAt([node] as Object[], mapNodeRowIndex, 9)
-        resultsTable.setRowSelectionInterval(mapNodeRowIndex, mapNodeRowIndex)
-        resultsTable.repaint()
-    }
-    
-    private void removeMapNodeRow() {
-        if (!mapNodeRowAdded || mapNodeRowIndex == -1) {
-            return
-        }
-        try {
-            if (mapNodeRowIndex < tableModel.getRowCount()) {
-                tableModel.removeRow(mapNodeRowIndex)
-            }
-        } catch (Exception e) {}
-        mapNodeRowAdded = false
-        mapNodeRowIndex = -1
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Manage map node row in table ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Add tag from selected row ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void addTagFromSelectedRow() {
-        int selectedRow = resultsTable.getSelectedRow()
-        if (selectedRow == -1) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "Please select a row in the results table first.", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        int modelRow = resultsTable.convertRowIndexToModel(selectedRow)
-        Object tagsValue = tableModel.getValueAt(modelRow, 6)
-        String tagToAdd = null
-        List<String> existingTags = []
-        if (tagsValue != null && tagsValue.toString().trim().length() > 0) {
-            String tagsString = tagsValue.toString().trim()
-            def tagPattern = ~/TagIcon\s*\[tag=([^,\]]+)[,\]]/
-            def matcher = (tagsString =~ tagPattern)
-            while (matcher.find()) {
-                String tagName = matcher.group(1).trim()
-                if (tagName && !tagName.isEmpty()) {
-                    existingTags.add(tagName)
-                }
-            }
-            if (existingTags.isEmpty()) {
-                if (!tagsString.contains("TagIcon") && !tagsString.contains("font=")) {
-                    existingTags = tagsString.split("\\s*,\\s*").collect { it.trim() }.findAll { !it.isEmpty() }
-                }
-            }
-        }
-        if (existingTags.isEmpty()) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "⚠️ This node has no tags in the Tags column!\nPlease select a node with tags.", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        if (existingTags.size() == 1) {
-            tagToAdd = existingTags[0]
-        } else {
-            String[] options = existingTags.toArray(new String[0])
-            String selectedTag = (String) JOptionPane.showInputDialog(
-                UITools.getCurrentFrame(),
-                "This node has ${existingTags.size()} tags:\nWhich tag should be added to selected nodes?",
-                "Select Tag",
-                JOptionPane.QUESTION_MESSAGE,
-                null,
-                options,
-                options[0]
-            )
-            if (selectedTag == null) {
-                return
-            }
-            tagToAdd = selectedTag
-        }
-        if (!tagToAdd || tagToAdd.isEmpty()) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "No tag selected.", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        def selectedNodes = ScriptUtils.c().selecteds
-        if (!selectedNodes || selectedNodes.isEmpty()) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), 
-                "No node selected in the main map.\nPlease select at least one node in the main map.", 
-                "Error", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        int count = 0
-        for (def targetNode in selectedNodes) {
-            try {
-                def controller = org.freeplane.features.tag.TagController.getController()
-                if (controller) {
-                    controller.addTag(targetNode.getDelegate(), tagToAdd)
-                    count++
-                } else {
-                    try {
-                        targetNode.tags.add(tagToAdd)
-                        count++
-                    } catch (Exception e2) {
-                        System.err.println("Error tagging node: ${targetNode.getText()}")
-                    }
-                }
-            } catch (Exception e) {
-                try {
-                    targetNode.tags.add(tagToAdd)
-                    count++
-                } catch (Exception e2) {
-                    System.err.println("Error tagging node: ${targetNode.getText()}")
-                }
-            }
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Add tag from selected row ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Setup tag keyboard shortcuts ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void setupTagShortcut() {
-        if (resultsTable == null) return
-        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(tagShortcut, "addTagFromRow")
-        resultsTable.getActionMap().put("addTagFromRow", new AbstractAction() {
-            void actionPerformed(ActionEvent e) {
-                addTagFromSelectedRow()
-            }
-        })
-        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(copyTagShortcut, "copyTag")
-        resultsTable.getActionMap().put("copyTag", new AbstractAction() {
-            void actionPerformed(ActionEvent e) {
-                copyTagFromSelectedRow()
-            }
-        })
-        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(pasteTagShortcut, "pasteTag")
-        resultsTable.getActionMap().put("pasteTag", new AbstractAction() {
-            void actionPerformed(ActionEvent e) {
-                pasteTagToSelectedRows()
-            }
-        })
-        if (currentSplitPane != null) {
-            currentSplitPane.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(tagShortcut, "addTagFromRowGlobal")
-            currentSplitPane.getActionMap().put("addTagFromRowGlobal", new AbstractAction() {
-                void actionPerformed(ActionEvent e) {
-                    addTagFromSelectedRow()
-                }
-            })
-            currentSplitPane.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(copyTagShortcut, "copyTagGlobal")
-            currentSplitPane.getActionMap().put("copyTagGlobal", new AbstractAction() {
-                void actionPerformed(ActionEvent e) {
-                    copyTagFromSelectedRow()
-                }
-            })
-            currentSplitPane.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(pasteTagShortcut, "pasteTagGlobal")
-            currentSplitPane.getActionMap().put("pasteTagGlobal", new AbstractAction() {
-                void actionPerformed(ActionEvent e) {
-                    pasteTagToSelectedRows()
-                }
-            })
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Setup tag keyboard shortcuts ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Column management ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private List<String> getDefaultFullColumnOrder() {
-        return ["File", "Style", "Ancestors", "Date Modified", "Date Created",
-                "Icons", "Tags", "Details", "Note", "Node"]
-    }
-    
-    private void saveFullTableState() {
-        if (resultsTable == null) return
-        TableColumnModel colModel = resultsTable.getColumnModel()
-        for (int i = 0; i < colModel.getColumnCount(); i++) {
-            TableColumn col = colModel.getColumn(i)
-            String header = (String) col.getHeaderValue()
-            int width = col.getWidth()
-            if (width > 0) {
-                storedColumnWidths.put(header, width)
-            }
-        }
-        def rc = ResourceController.getResourceController()
-        StringBuilder widthsStr = new StringBuilder()
-        storedColumnWidths.each { header, width ->
-            if (widthsStr.length() > 0) widthsStr.append("|")
-            widthsStr.append("${header}=${width}")
-        }
-        rc.setProperty("mapcrawler.storedColumnWidths", widthsStr.toString())
-    }
-    
-    private void loadFullTableState() {
-        def rc = ResourceController.getResourceController()
-        String storedWidths = rc.getProperty("mapcrawler.storedColumnWidths")
-        if (storedWidths) {
-            storedColumnWidths.clear()
-            storedWidths.split("\\|").each { pair ->
-                def parts = pair.split("=")
-                if (parts.length == 2) {
-                    storedColumnWidths[parts[0]] = parts[1].toInteger()
-                }
-            }
-        }
-        loadColumnWidths()
-        applySettings()
-    }
-    
-    private void saveColumnOrder() {
-        if (resultsTable == null) return
-        def rc = ResourceController.getResourceController()
-        TableColumnModel colModel = resultsTable.getColumnModel()
-        List<String> visibleOrder = []
-        for (int i = 0; i < colModel.getColumnCount(); i++) {
-            visibleOrder << (String) colModel.getColumn(i).getHeaderValue()
-        }
-        String savedFullOrderStr = rc.getProperty("mapcrawler.fullColumnOrder")
-        List<String> lastFullOrder = getDefaultFullColumnOrder()
-        if (savedFullOrderStr != null && !savedFullOrderStr.isEmpty()) {
-            lastFullOrder = savedFullOrderStr.split(",") as List
-        }
-        List<String> newFullOrder = []
-        Set<String> allColumns = getDefaultFullColumnOrder() as Set
-        Set<String> hiddenColumns = allColumns - visibleOrder
-        newFullOrder.addAll(visibleOrder)
-        for (String col in lastFullOrder) {
-            if (hiddenColumns.contains(col) && !newFullOrder.contains(col)) {
-                int insertPos = newFullOrder.indexOf(col)
-                if (insertPos == -1) {
-                    newFullOrder << col
-                } else {
-                    newFullOrder.add(insertPos, col)
-                }
-            }
-        }
-        String fullOrderStr = newFullOrder.join(",")
-        rc.setProperty("mapcrawler.fullColumnOrder", fullOrderStr)
-    }
-    
-    private void loadColumnOrder() {
-        if (resultsTable == null) return
-        def rc = ResourceController.getResourceController()
-        String fullOrderStr = rc.getProperty("mapcrawler.fullColumnOrder")
-        if (fullOrderStr == null || fullOrderStr.isEmpty()) return
-        List<String> desiredOrder = fullOrderStr.split(",") as List
-        TableColumnModel colModel = resultsTable.getColumnModel()
-        List<String> currentVisible = []
-        for (int i = 0; i < colModel.getColumnCount(); i++) {
-            currentVisible << (String) colModel.getColumn(i).getHeaderValue()
-        }
-        int nextPos = 0
-        for (String colName in desiredOrder) {
-            if (currentVisible.contains(colName)) {
-                for (int i = nextPos; i < colModel.getColumnCount(); i++) {
-                    if (colModel.getColumn(i).getHeaderValue() == colName) {
-                        if (i != nextPos) {
-                            colModel.moveColumn(i, nextPos)
-                        }
-                        nextPos++
-                        break
-                    }
-                }
-            }
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Column management ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Column width adjustment methods ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void adjustLastColumnWidth() {
-        if (resultsTable == null || tableScroll == null) return
-        JViewport viewport = tableScroll.getViewport()
-        if (viewport == null) return
-        int viewWidth = viewport.getWidth()
-        if (viewWidth <= 0) return
-        TableColumnModel colModel = resultsTable.getColumnModel()
-        int lastColIndex = colModel.getColumnCount() - 1
-        int otherColumnsWidth = 0
-        for (int i = 0; i < lastColIndex; i++) {
-            otherColumnsWidth += colModel.getColumn(i).getWidth()
-        }
-        if (otherColumnsWidth >= viewWidth) {
-            return
-        }
-        int remaining = viewWidth - otherColumnsWidth
-        int minWidth = colModel.getColumn(lastColIndex).getMinWidth()
-        int newWidth = Math.max(minWidth, remaining)
-        if (newWidth != colModel.getColumn(lastColIndex).getWidth()) {
-            colModel.getColumn(lastColIndex).setWidth(newWidth)
-            colModel.getColumn(lastColIndex).setPreferredWidth(newWidth)
-            updateAllRowHeights()
-            resultsTable.revalidate()
-            resultsTable.repaint()
-        }
-    }
-    
-    private void fixViewportToRight() {
-        if (tableScroll == null) return
-        JViewport viewport = tableScroll.getViewport()
-        if (viewport == null) return
-        viewport.setViewPosition(new Point(0, 0))
-    }
-    
-    private void initColumnWidths() {
-        defaultColumnWidths.clear()
-        currentColumnWidths.clear()
-        totalDefaultWidth = 0
-        TableColumnModel colModel = resultsTable.getColumnModel()
-        for (int i = 0; i < colModel.getColumnCount(); i++) {
-            int w = colModel.getColumn(i).getWidth()
-            defaultColumnWidths.add(w)
-            currentColumnWidths.add(w)
-            totalDefaultWidth += w
-        }
-    }
-    
-    private void adjustColumnsForAvailableWidth(int availableWidth) {
-        if (adjusting || defaultColumnWidths.isEmpty()) return
-        adjusting = true
-        try {
-            if (availableWidth >= totalDefaultWidth) {
-                TableColumnModel colModel = resultsTable.getColumnModel()
-                for (int i = 0; i < colModel.getColumnCount(); i++) {
-                    int w = defaultColumnWidths.get(i)
-                    colModel.getColumn(i).setWidth(w)
-                    colModel.getColumn(i).setPreferredWidth(w)
-                    currentColumnWidths.set(i, w)
-                }
-            } else {
-                int shortage = totalDefaultWidth - availableWidth
-                TableColumnModel colModel = resultsTable.getColumnModel()
-                for (int i = 0; i < colModel.getColumnCount() && shortage > 0; i++) {
-                    int current = currentColumnWidths.get(i)
-                    int minWidth = colModel.getColumn(i).getMinWidth()
-                    int canReduce = current - minWidth
-                    if (canReduce > 0) {
-                        int reduce = Math.min(shortage, canReduce)
-                        int newWidth = current - reduce
-                        colModel.getColumn(i).setWidth(newWidth)
-                        colModel.getColumn(i).setPreferredWidth(newWidth)
-                        currentColumnWidths.set(i, newWidth)
-                        shortage -= reduce
-                    }
-                }
-            }
-            resultsTable.revalidate()
-            resultsTable.repaint()
-        } finally {
-            adjusting = false
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Column width adjustment methods ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Row height and node display methods ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private void updateBaseLineHeight() {
-        if (resultsTable == null) return
-        Font nodeFont = (fontWeightColumn != null) ? fontWeightColumn : resultsTable.getFont()
-        FontMetrics fm = resultsTable.getFontMetrics(nodeFont)
-        baseLineHeight = fm.getHeight() + 4
-    }
-    
-    private int computeNodeLineCount(Node node, int columnWidth) {
-        if (singleLineMode) return 1
-        if (columnWidth <= 10) return 1
-        String rawText = node.getHtmlText() ?: node.getPlainText()
-        if (rawText == null || rawText.isEmpty()) return 1
-        String plainText = rawText.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim()
-        if (trimMode && !fullMode && plainText.length() > trimLength) {
-            plainText = plainText.substring(0, trimLength) + "\u2026"
-        }
-        Font nodeFont = (fontWeightColumn != null) ? fontWeightColumn : resultsTable.getFont()
-        FontMetrics fm = resultsTable.getFontMetrics(nodeFont)
-        int availableWidth = columnWidth - 16
-        if (availableWidth <= 0) return 1
-        String[] words = plainText.split("(?<=\\s+)|(?=\\s+)")
-        int lines = 1
-        int currentWidth = 0
-        for (String w : words) {
-            int ww = fm.stringWidth(w)
-            if (currentWidth + ww > availableWidth) {
-                lines++
-                currentWidth = ww
-            } else {
-                currentWidth += ww
-            }
-        }
-        return lines
-    }
-    
-    private void updateAllRowHeights() {
-        if (resultsTable == null) return
-        if (singleLineMode) {
-            resultsTable.setRowHeight(baseLineHeight)
-            return
-        }
-        int nodeColView = resultsTable.convertColumnIndexToView(9)
-        if (nodeColView == -1) return
-        int nodeColWidth = resultsTable.getColumnModel().getColumn(nodeColView).getWidth()
-        for (int row = 0; row < resultsTable.getRowCount(); row++) {
-            int modelRow = resultsTable.convertRowIndexToModel(row)
-            Object nodeValue = tableModel.getValueAt(modelRow, 9)
-            Node node = (nodeValue instanceof Object[]) ? ((Object[])nodeValue)[0] as Node : nodeValue as Node
-            if (node == null) continue
-            int lines = computeNodeLineCount(node, nodeColWidth)
-            int newHeight = baseLineHeight * lines
-            if (resultsTable.getRowHeight(row) != newHeight) {
-                resultsTable.setRowHeight(row, newHeight)
-            }
-        }
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Row height and node display methods ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-    //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Styled content rendering helpers ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    private String getStyledNodeColumnContentSingleLine(Node node, Font font, int columnWidth, boolean applyHighlight) {
-        Color fgColor = getNodeForegroundColor(node)
-        String colorStyle = (fgColor != null) ? "color: rgb(${fgColor.red}, ${fgColor.green}, ${fgColor.blue});" : ""
-        String rawHtml = node.getHtmlText()
-        if (rawHtml == null || !rawHtml.trim().startsWith("<")) {
-            String plainText = node.getPlainText() ?: ""
-            if (plainText.length() > trimLength)
-                plainText = TextUtils.getShortText(plainText, trimLength, "\u2026")
-            String escaped = escapeHtml(plainText).replace("\n", "<br>")
-            String highlightWord = null
-            if (applyHighlight) {
-                if (currentFilterText != null && !currentFilterText.isEmpty())
-                    highlightWord = currentFilterText
-                else if (lastSearchKeyword != null && !lastSearchKeyword.isEmpty())
-                    highlightWord = lastSearchKeyword
-            }
-            if (highlightWord != null && !highlightWord.isEmpty()) {
-                String patternStr = Pattern.quote(highlightWord)
-                try {
-                    int flags = matchCase ? 0 : Pattern.CASE_INSENSITIVE
-                    Pattern p = Pattern.compile("($patternStr)", flags)
-                    Matcher m = p.matcher(escaped)
-                    StringBuffer sb = new StringBuffer()
-                    while (m.find())
-                        m.appendReplacement(sb, "<span style='background-color: yellow;'>\$1</span>")
-                    m.appendTail(sb)
-                    escaped = sb.toString()
-                } catch (Exception e) {}
-            }
-            String family = font.getFamily()
-            int size = font.getSize()
-            String weight = font.isBold() ? "bold" : "normal"
-            String styleFlag = font.isItalic() ? "italic" : "normal"
-            String wrapperStyle = "font-family: ${family}; font-size: ${size}pt; font-weight: ${weight}; font-style: ${styleFlag}; ${colorStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: ${columnWidth - 10}px; direction: rtl; text-align: right; margin:0; padding:0;"
-            return "<div style=\"${wrapperStyle}\">${escaped}</div>"
-        }
-        String html = rawHtml.replaceAll("(?i)<\\/?(html|head|body)[^>]*>", "")
-        html = html.replaceAll("(?i)<style[^>]*>.*?<\\/style>", "")
-        html = html.replaceAll(/(?i)font-size\s*:\s*[^;]+;?/, "")
-        html = html.replaceAll(/(?i)font-family\s*:\s*[^;]+;?/, "")
-        html = html.replaceAll(/(?i)line-height\s*:\s*[^;]+;?/, "")
-        html = html.replaceAll(/;\s*;/, ";")
-        html = html.replaceAll(/;\s*}/, "}")
-        html = html.replaceAll(/style\s*=\s*["']\s*["']/, "")
-        html = html.replaceAll("(?i)<\\/?font[^>]*>", "")
-        html = html.replaceAll("(?i)\\s+size\\s*=\\s*[\"']?[^\"'\\s>]+[\"']?", "")
-        html = html.replaceAll("(?i)\\s+face\\s*=\\s*[\"']?[^\"'\\s>]+[\"']?", "")
-        if (html.trim().isEmpty()) html = node.getPlainText()
-        String family = font.getFamily()
-        int size = font.getSize()
-        String weight = font.isBold() ? "bold" : "normal"
-        String styleFlag = font.isItalic() ? "italic" : "normal"
-        String wrapperStyle = "font-family: ${family}; font-size: ${size}pt; font-weight: ${weight}; font-style: ${styleFlag}; ${colorStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: ${columnWidth - 10}px; direction: rtl; text-align: right; margin:0; padding:0;"
-        return "<div style=\"${wrapperStyle}\">${html}</div>"
-    }
-    
-    private String getStyledDetailsContent(Node node, Font font) {
-        return getStyledTextContent(node.getDetails()?.getHtml() ?: node.getDetails()?.getPlain() ?: "", font, node)
-    }
-    
-    private String getStyledNoteContent(Node node, Font font) {
-        return getStyledTextContent(node.getNote()?.getHtml() ?: node.getNote()?.getPlain() ?: "", font, node)
-    }
-    
-    private Color getNodeForegroundColor(Node node) {
-        if (node == null) return null
-        try {
-            NodeModel nodeModel = getNodeModel(node)
-            return NodeStyleController.getController().getColor(nodeModel, StyleOption.FOR_UNSELECTED_NODE)
-        } catch (Exception e) {
-            return node.getStyle()?.getForegroundColor() ?: UIManager.getColor("Label.foreground")
-        }
-    }
-    
-    private String getStyledNodeColumnContent(Node node, Font font, boolean applyHighlight) {
-        String highlightWord = null
-        if (applyHighlight) {
-            if (currentFilterText != null && !currentFilterText.isEmpty())
-                highlightWord = currentFilterText
-            else if (lastSearchKeyword != null && !lastSearchKeyword.isEmpty())
-                highlightWord = lastSearchKeyword
-        }
-        String htmlContent = node.getHtmlText()
-        if (htmlContent && htmlContent.trim().startsWith("<")) {
-            htmlContent = htmlContent.replaceAll("(?i)<\\/?(html|head|body)[^>]*>", "")
-            htmlContent = htmlContent.replaceAll("(?i)<style[^>]*>.*?<\\/style>", "")
-            htmlContent = htmlContent.replaceAll(/(?i)font-size\s*:\s*[^;]+;?/, "")
-            htmlContent = htmlContent.replaceAll(/(?i)font-family\s*:\s*[^;]+;?/, "")
-            htmlContent = htmlContent.replaceAll(/(?i)line-height\s*:\s*[^;]+;?/, "")
-            htmlContent = htmlContent.replaceAll(/;\s*;/, ";")
-            htmlContent = htmlContent.replaceAll(/;\s*}/, "}")
-            htmlContent = htmlContent.replaceAll(/style\s*=\s*["']\s*["']/, "")
-            htmlContent = htmlContent.replaceAll("(?i)<\\/?font[^>]*>", "")
-            htmlContent = htmlContent.replaceAll("(?i)\\s+size\\s*=\\s*[\"']?[^\"'\\s>]+[\"']?", "")
-            htmlContent = htmlContent.replaceAll("(?i)\\s+face\\s*=\\s*[\"']?[^\"'\\s>]+[\"']?", "")
-            if (htmlContent.trim().isEmpty()) htmlContent = node.getPlainText()
-            String family = font.getFamily()
-            int size = font.getSize()
-            String weight = font.isBold() ? "bold" : "normal"
-            String styleFlag = font.isItalic() ? "italic" : "normal"
-            String divStyle = "font-family: ${family}; font-size: ${size}pt; font-weight: ${weight}; font-style: ${styleFlag}; margin:0; padding:0;"
-            return "<div style=\"${divStyle}\">${htmlContent}</div>"
-        } else {
-            String plainText = node.getPlainText() ?: ""
-            if (trimMode && plainText.length() > trimLength) {
-                plainText = TextUtils.getShortText(plainText, trimLength, "\u2026")
-            }
-            String escaped = escapeHtml(plainText).replace("\n", "<br>")
-            if (highlightWord != null && !highlightWord.isEmpty()) {
-                String patternStr = Pattern.quote(highlightWord)
-                try {
-                    int flags = matchCase ? 0 : Pattern.CASE_INSENSITIVE
-                    Pattern p = Pattern.compile("($patternStr)", flags)
-                    Matcher m = p.matcher(escaped)
-                    StringBuffer sb = new StringBuffer()
-                    while (m.find())
-                        m.appendReplacement(sb, "<span style='background-color: yellow;'>\$1</span>")
-                    m.appendTail(sb)
-                    escaped = sb.toString()
-                } catch (Exception e) {}
-            }
-            String family = font.getFamily()
-            int size = font.getSize()
-            String weight = font.isBold() ? "bold" : "normal"
-            String styleFlag = font.isItalic() ? "italic" : "normal"
-            String divStyle = "font-family: ${family}; font-size: ${size}pt; font-weight: ${weight}; font-style: ${styleFlag}; margin:0; padding:0;"
-            return "<div style=\"${divStyle}\">${escaped}</div>"
-        }
-    }
-    
-    private Color getBorderColorForNode(Node node) {
-        if (node?.mindMap?.file) {
-            String path = node.mindMap.file.absolutePath
-            if (PATH_COLORS.containsKey(path))
-                return PATH_COLORS.get(path)
-        }
-        return Color.GRAY
-    }
-    
-    private Color getNodeBackgroundColor(Node node) {
-        if (node == null) return null
-        try {
-            NodeModel nodeModel = getNodeModel(node)
-            return NodeStyleController.getController().getBackgroundColor(nodeModel, StyleOption.FOR_UNSELECTED_NODE)
-        } catch (Exception e) {
-            return node.backgroundColor
-        }
-    }
-    
-    private Color getForegroundForBackground(Color bg) {
-        if (bg == null) return Color.BLACK
-        int brightness = (int)(0.299*bg.getRed() + 0.587*bg.getGreen() + 0.114*bg.getBlue())
-        return brightness > 128 ? Color.BLACK : Color.WHITE
-    }
-    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Styled content rendering helpers ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-    
-  
+}
 
+Map<String, String> colorByQualifiedName(def state) {
+    Map<String, String> colors = new HashMap<String, String>()
+    def walk
+    walk = { cat ->
+        colors.put(cat.qualifiedName, cat.color)
+        cat.children.each { walk(it) }
+    }
+    state.categories.each { walk(it) }
+    state.uncategorizedTags.each { colors.put(it.qualifiedName, it.color) }
+    return colors
+}
 
+List<String> colorsForNewPath(List<String> path, Map<String, String> existingColors) {
+    String mode = newTagColorMode()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Node deletion methods ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void deleteSelectedNode() {
-            int selectedRow = resultsTable.getSelectedRow()
-            if (selectedRow == -1) return
-            int modelRow = resultsTable.convertRowIndexToModel(selectedRow)
-            Object value = tableModel.getValueAt(modelRow, 9)
-            Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-            if (node == null) return
-            if (node.isRoot()) {
-                JOptionPane.showMessageDialog(
-                    UITools.getCurrentFrame(),
-                    "Cannot delete the root node of the map.",
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE
-                )
-                return
-            }
-            Node viewRoot = ScriptUtils.c().viewRoot
-            if (viewRoot != null && node.getId() == viewRoot.getId()) {
-                JOptionPane.showMessageDialog(
-                    UITools.getCurrentFrame(),
-                    "Cannot delete the View Root node.\nPlease double-click another node first to change the root.",
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE
-                )
-                return
-            }
-            try {
-                SwingUtilities.invokeLater(new Runnable() {
-                    void run() {
-                        node.delete()
-                    }
-                })
-                SwingUtilities.invokeLater(new Runnable() {
-                    void run() {
-                        tableModel.removeRow(modelRow)
-                        updateResultCount()
-                        if (tableModel.getRowCount() == 0) {
-                            clearPreview()
-                        } else {
-                            int newRow = Math.min(modelRow, tableModel.getRowCount() - 1)
-                            if (newRow >= 0) {
-                                int viewRow = resultsTable.convertRowIndexToView(newRow)
-                                resultsTable.setRowSelectionInterval(viewRow, viewRow)
-                                showNodeDetails(viewRow)
-                            }
-                        }
-                        pathCache.clear()
-                        rowHeightCache.clear()
-                    }
-                })
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(
-                    UITools.getCurrentFrame(),
-                    "Error deleting node: ${e.message}",
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE
-                )
-                e.printStackTrace()
-            }
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Node deletion methods ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Copy, Cut, Paste node methods ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void copySelectedNodesDeep() {
-            List<Node> selectedNodes = getSelectedNodesFromTable()
-            if (selectedNodes.isEmpty()) {
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "No node selected.")
-                return
-            }
-            List<NodeModel> nodeModels = selectedNodes.collect { getNodeModel(it) }
-            MapClipboardController clipboardController = MapClipboardController.getController()
-            if (clipboardController == null) {
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Error accessing clipboard.")
-                return
-            }
-            Transferable transferable = clipboardController.copy(nodeModels)
-            if (transferable == null) {
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Error copying nodes.")
-                return
-            }
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(transferable, null)
-        }
-        
-        private void cutSelectedNodesDeep() {
-            List<Node> selectedNodes = getSelectedNodesFromTable()
-            if (selectedNodes.isEmpty()) return
-            for (Node node : selectedNodes) {
-                if (node.isRoot()) {
-                    JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Root node cannot be cut.")
-                    return
-                }
-                Node viewRoot = ScriptUtils.c().viewRoot
-                if (viewRoot != null && node.getId() == viewRoot.getId()) {
-                    JOptionPane.showMessageDialog(UITools.getCurrentFrame(),
-                        "View Root node cannot be cut. Double-click another node first.")
-                    return
-                }
-            }
-            List<NodeModel> nodeModels = selectedNodes.collect { getNodeModel(it) }
-            MapClipboardController clipboardController = MapClipboardController.getController()
-            if (clipboardController == null) {
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Error accessing clipboard.")
-                return
-            }
-            Transferable transferable = clipboardController.copy(nodeModels)
-            if (transferable == null) {
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Error copying nodes for cut.")
-                return
-            }
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(transferable, null)
-            List<Node> deletedNodes = []
-            for (Node node : selectedNodes) {
-                try {
-                    node.delete()
-                    deletedNodes.add(node)
-                } catch (Exception e) {
-                    println "Error deleting node ${node.plainText}: ${e.message}"
-                }
-            }
-            removeRowsFromTable(deletedNodes)
-            updateResultCount()
-            if (tableModel.getRowCount() == 0) clearPreview()
-            else resultsTable.setRowSelectionInterval(0, 0)
-            pathCache.clear()
-            rowHeightCache.clear()
-        }
-        
-        private void removeRowsFromTable(List<Node> nodesToRemove) {
-            if (nodesToRemove.isEmpty()) return
-            Set<String> idsToRemove = nodesToRemove.collect { it.getId() } as Set
-            for (int i = tableModel.getRowCount() - 1; i >= 0; i--) {
-                Object value = tableModel.getValueAt(i, 9)
-                Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-                if (node != null && idsToRemove.contains(node.getId())) {
-                    tableModel.removeRow(i)
-                }
-            }
-        }
-        
-        private List<Node> getSelectedNodesFromTable() {
-            List<Node> nodes = new ArrayList<>()
-            int[] selectedRows = resultsTable.getSelectedRows()
-            if (selectedRows == null || selectedRows.length == 0) return nodes
-            for (int viewRow : selectedRows) {
-                int modelRow = resultsTable.convertRowIndexToModel(viewRow)
-                Object value = tableModel.getValueAt(modelRow, 9)
-                Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-                if (node != null) nodes.add(node)
-            }
-            return nodes
-        }
-        
-        private void pasteNodesFromClipboard() {
-            int selectedRow = resultsTable.getSelectedRow()
-            if (selectedRow == -1) return
-            int modelRow = resultsTable.convertRowIndexToModel(selectedRow)
-            Object value = tableModel.getValueAt(modelRow, 9)
-            Node targetNode = (value instanceof Object[]) ? ((Object[])value)[0] as Node :
-                              (value instanceof Node ? value as Node : null)
-            if (targetNode == null) return
-            Transferable transferable = Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null)
-            if (transferable == null) return
-            MapClipboardController clipboardController = MapClipboardController.getController()
-            if (clipboardController == null) return
-            try {
-                NodeModel targetModel = getNodeModel(targetNode)
-                clipboardController.paste(transferable, targetModel)
-                SwingUtilities.invokeLater {
-                    pathCache.clear()
-                    rowHeightCache.clear()
-                    resultsTable.repaint()
-                }
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(),
-                    "Error pasting: ${e.message}",
-                    "Error", JOptionPane.ERROR_MESSAGE)
-            }
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Copy, Cut, Paste node methods ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-                
-                
-    
-
-    // ========== Inner class for column visibility ==========
-    class ColumnItem {
-        String name
-        boolean visible
-        Closure onToggle
-        ColumnItem(String name, boolean visible, Closure onToggle) {
-            this.name = name
-            this.visible = visible
-            this.onToggle = onToggle
-        }
+    if (mode == "fixed") {
+        String fixed = chosenFixedColor() ?: newTagColorFallback
+        return path.collect { fixed }
+    }
+    if (mode != "inherit") {
+        return path.collect { (String) null }
     }
 
-    private void saveColumnWidths() {
-        def rc = ResourceController.getResourceController()
-        if (resultsTable == null) return
-        TableColumnModel colModel = resultsTable.getColumnModel()
-        for (int i = 0; i < colModel.getColumnCount(); i++) {
-            rc.setProperty("mapcrawler.columnWidth.$i", String.valueOf(colModel.getColumn(i).getWidth()))
-        }
-        if (currentSplitPane != null) {
-            int loc = currentSplitPane.getDividerLocation()
-            rc.setProperty("mapcrawler.mainDividerLocation", String.valueOf(loc))
-        }
-        if (verticalSplitPane != null) {
-            int vLoc = verticalSplitPane.getDividerLocation()
-            if (vLoc > 0) {
-                rc.setProperty("mapcrawler.verticalDividerLocation", String.valueOf(vLoc))
-            }
-        }
-        if (innerSplitPane != null) {
-            int innerLoc = innerSplitPane.getDividerLocation()
-            if (innerLoc > 0) {
-                rc.setProperty("mapcrawler.innerDividerLocation", String.valueOf(innerLoc))
-            }
-        }
+    String separator = separator()
+    String inherited = null
+    List<String> colors = new ArrayList<String>()
+    StringBuilder qualified = new StringBuilder()
+    for (int i = 0; i < path.size(); i++) {
+        if (i > 0) qualified.append(separator)
+        qualified.append(path.get(i))
+        String existing = existingColors.get(qualified.toString())
+        if (existing != null) inherited = existing
+        colors.add(existing != null ? existing : (inherited ?: chosenFixedColor()))
     }
-
-    private void loadColumnWidths() {
-        def rc = ResourceController.getResourceController()
-        if (resultsTable == null) return
-        TableColumnModel colModel = resultsTable.getColumnModel()
-        for (int i = 0; i < colModel.getColumnCount(); i++) {
-            String val = rc.getProperty("mapcrawler.columnWidth.$i")
-            if (val != null && val.isInteger()) {
-                int w = val.toInteger()
-                if (w > 20) colModel.getColumn(i).setPreferredWidth(w)
-            }
-        }
-        String divLoc = rc.getProperty("mapcrawler.mainDividerLocation")
-        if (divLoc != null && divLoc.isInteger() && currentSplitPane != null) {
-            int loc = divLoc.toInteger()
-            if (loc > 0 && loc < currentSplitPane.getWidth()) {
-                currentSplitPane.setDividerLocation(loc)
-                lastDividerLocation = loc
-                savedDividerLocation = loc
-            }
-        }
-        String vDivLoc = rc.getProperty("mapcrawler.verticalDividerLocation")
-        if (vDivLoc != null && vDivLoc.isInteger() && verticalSplitPane != null) {
-            int vLoc = vDivLoc.toInteger()
-            if (vLoc > 20 && vLoc < verticalSplitPane.getHeight() - 50) {
-                verticalSplitPane.setDividerLocation(vLoc)
-                lastVerticalDividerLocation = vLoc
-            }
-        }
-        String innerLocStr = rc.getProperty("mapcrawler.innerDividerLocation")
-        if (innerLocStr != null && innerLocStr.isInteger() && innerSplitPane != null) {
-            int innerLoc = innerLocStr.toInteger()
-            if (innerLoc > 20 && innerLoc < innerSplitPane.getWidth() - 20) {
-                innerSplitPane.setDividerLocation(innerLoc)
-            }
-        }
-    }
-
-    // ========== Main toggle method ==========
-    void toggle() {
-        if (currentSplitPane == null) show()
-        else toggleExpandCollapse()
-    }
-
-    void show() {
-        def mainFrame = UITools.getCurrentFrame()
-        if (currentSplitPane != null) return
-        if (originalContentPane == null) originalContentPane = mainFrame.getContentPane()
-        loadSettings()
-        loadFontSettings()
-        loadHistory()
-        UIManager.put("SplitPane.oneTouchExpandableOffset", 0.5)
-        JPanel searchPanel = createSearchPanel()
-        currentSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, originalContentPane, searchPanel)
-        currentSplitPane.setResizeWeight(0.75)
-        currentSplitPane.setOneTouchExpandable(true)
-        currentSplitPane.setContinuousLayout(false)
-        currentSplitPane.setDividerSize(15)
-        currentSplitPane.setMinimumSize(new Dimension(0, 0))
-        originalContentPaneMinSize = originalContentPane.getMinimumSize()
-        originalContentPane.setMinimumSize(new Dimension(0, 0))
-        searchPanel.setMinimumSize(new Dimension(0, 0))
-        mainFrame.setContentPane(currentSplitPane)
-        mainFrame.revalidate()
-        mainFrame.repaint()
-        loadFullTableState()
-        SwingUtilities.invokeLater(() -> {
-            int totalWidth = currentSplitPane.getWidth()
-            if (totalWidth > 0 && lastDividerLocation > 0 && lastDividerLocation < totalWidth) {
-                currentSplitPane.setDividerLocation(lastDividerLocation)
-                savedDividerLocation = lastDividerLocation
-            } else if (totalWidth > 0) {
-                int rightWidth = (int)(totalWidth * 0.2625)
-                int leftWidth = totalWidth - rightWidth
-                currentSplitPane.setDividerLocation(leftWidth)
-                savedDividerLocation = leftWidth
-            } else {
-                currentSplitPane.setDividerLocation(0.2625)
-                savedDividerLocation = (int)(currentSplitPane.getWidth() * 0.2625)
-            }
-            if (verticalSplitPane != null) {
-                if (lastVerticalDividerLocation > 0 && lastVerticalDividerLocation < verticalSplitPane.getHeight()) {
-                    verticalSplitPane.setDividerLocation(lastVerticalDividerLocation)
-                } else {
-                    verticalSplitPane.setDividerLocation(180)
-                }
-            }
-            updateAllRowHeights()
-            initColumnWidths()
-            fixViewportToRight()
-            adjustLastColumnWidth()
-        })
-        currentSplitPane.addPropertyChangeListener("dividerLocation", new PropertyChangeListener() {
-            private Timer timer
-            void propertyChange(PropertyChangeEvent evt) {
-                if (timer != null && timer.isRunning()) timer.stop()
-                timer = new Timer(50, {
-                    if (tableScroll != null) {
-                        fixViewportToRight()
-                        adjustLastColumnWidth()
-                    }
-                })
-                timer.setRepeats(false)
-                timer.start()
-            }
-        })
-        focusSearchField()
-        setupKeyboardShortcut()
-        setupTagShortcut()
-        applyFontsToComponents()
-        updateBaseLineHeight()
-        updateModeDependencies()
-        resultsTable.getColumnModel().addColumnModelListener(new TableColumnModelListener() {
-            void columnMarginChanged(ChangeEvent e) {
-                if (columnResizeTimer != null && columnResizeTimer.isRunning())
-                    columnResizeTimer.stop()
-                columnResizeTimer = new Timer(150, {
-                    updateAllRowHeights()
-                    fixViewportToRight()
-                    saveFullTableState()
-                })
-                columnResizeTimer.setRepeats(false)
-                columnResizeTimer.start()
-            }
-            void columnMoved(TableColumnModelEvent e) {
-                rowHeightCache.clear()
-                saveFullTableState()
-                fixViewportToRight()
-            }
-            void columnAdded(TableColumnModelEvent e) { rowHeightCache.clear() }
-            void columnRemoved(TableColumnModelEvent e) { rowHeightCache.clear() }
-            void columnSelectionChanged(ListSelectionEvent e) { }
-        })
-        // Start map selection polling
-        startMapSelectionPolling()
-    }
-
-    private void closePanel() {
-        if (currentSplitPane == null) return
-        saveFullTableState()
-        if (settingsDialog != null && settingsDialog.isVisible()) settingsDialog.dispose()
-        def mainFrame = UITools.getCurrentFrame()
-        if (originalContentPane != null) {
-            if (originalContentPaneMinSize != null) {
-                originalContentPane.setMinimumSize(originalContentPaneMinSize)
-            }
-            mainFrame.setContentPane(originalContentPane)
-            mainFrame.revalidate()
-            mainFrame.repaint()
-        }
-        currentSplitPane = null
-        if (hoverTimer != null) hoverTimer.stop()
-        pathCache.clear()
-        rowHeightCache.clear()
-        // Stop polling and hide floating breadcrumb
-        stopMapSelectionPolling()
-        removeBreadcrumbOnly()
-    }
-
-    private void toggleExpandCollapse() {
-        if (currentSplitPane == null) return
-        int max = currentSplitPane.getMaximumDividerLocation()
-        int current = currentSplitPane.getDividerLocation()
-        if (current >= max - 5) {
-            int target = (savedDividerLocation > 0 && savedDividerLocation < max) ? savedDividerLocation : (int)(currentSplitPane.getWidth() * 0.75)
-            currentSplitPane.setDividerLocation(target)
-        } else {
-            savedDividerLocation = current
-            currentSplitPane.setDividerLocation(1.0)
-        }
-        saveColumnWidths()
-    }
-
-    private void setupKeyboardShortcut() {
-        if (currentSplitPane == null) return
-        def mainFrame = UITools.getCurrentFrame()
-        mainFrame.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(
-            KeyStroke.getKeyStroke(KeyEvent.VK_J, InputEvent.ALT_DOWN_MASK), "toggleCollapse")
-        mainFrame.getRootPane().getActionMap().put("toggleCollapse", new AbstractAction() {
-            void actionPerformed(ActionEvent e) { toggleExpandCollapse() }
-        })
-    }
-
-        private void createColumnVisibilityDialog() {
-            if (columnVisibilityDialog != null) return
-            JFrame mainFrame = UITools.getCurrentFrame()
-            columnVisibilityDialog = new JDialog(mainFrame, "Column Visibility Settings", false)
-            columnVisibilityDialog.setLayout(new BorderLayout())
-            columnListModel = new DefaultListModel<>()
-            columnList = new JList<>(columnListModel)
-            columnList.setCellRenderer(new DefaultListCellRenderer() {
-                @Override
-                public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                    ColumnItem item = (ColumnItem) value
-                    JCheckBox checkBox = new JCheckBox(item.name, item.visible)
-                    checkBox.setOpaque(true)
-                    if (isSelected) {
-                        checkBox.setBackground(list.getSelectionBackground())
-                        checkBox.setForeground(list.getSelectionForeground())
-                    } else {
-                        checkBox.setBackground(list.getBackground())
-                        checkBox.setForeground(list.getForeground())
-                    }
-                    checkBox.setFont(list.getFont())
-                    checkBox.setFocusable(false)
-                    return checkBox
-                }
-            })
-            columnList.setVisibleRowCount(12)
-            columnList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
-            columnListModel.addElement(new ColumnItem("File Column", !hideFileColumn, { val -> hideFileColumn = !val; afterColumnToggle() }))
-            columnListModel.addElement(new ColumnItem("Style Column", !hideStyleColumn, { val -> hideStyleColumn = !val; afterColumnToggle() }))
-            columnListModel.addElement(new ColumnItem("Ancestors Column", !hidePathColumn, { val -> hidePathColumn = !val; afterColumnToggle() }))
-            columnListModel.addElement(new ColumnItem("Date Modified (Node)", !hideDateColumn, { val -> hideDateColumn = !val; afterColumnToggle() }))
-            columnListModel.addElement(new ColumnItem("Date Created (Node)", !hideDateCreatedColumn, { val -> hideDateCreatedColumn = !val; afterColumnToggle() }))
-            columnListModel.addElement(new ColumnItem("Icons Column", !hideIconsColumn, { val -> hideIconsColumn = !val; afterColumnToggle() }))
-            columnListModel.addElement(new ColumnItem("Tags Column", !hideTagsColumn, { val -> hideTagsColumn = !val; afterColumnToggle() }))
-            columnListModel.addElement(new ColumnItem("Details Column", !hideDetailsColumn, { val -> hideDetailsColumn = !val; afterColumnToggle() }))
-            columnListModel.addElement(new ColumnItem("Note Column", !hideNoteColumn, { val -> hideNoteColumn = !val; afterColumnToggle() }))
-            columnListModel.addElement(new ColumnItem("Node Column", !hideNodeColumn, { val -> hideNodeColumn = !val; afterColumnToggle() }))
-            JScrollPane scrollPane = new JScrollPane(columnList)
-            scrollPane.setPreferredSize(new Dimension(350, 550))
-            columnVisibilityDialog.add(scrollPane, BorderLayout.CENTER)
-            columnList.addMouseListener(new MouseAdapter() {
-                void mouseClicked(MouseEvent e) {
-                    int idx = columnList.locationToIndex(e.getPoint())
-                    if (idx != -1) {
-                        ColumnItem item = columnListModel.get(idx)
-                        item.visible = !item.visible
-                        item.onToggle.call(item.visible)
-                        columnListModel.set(idx, item)
-                        columnList.setSelectedIndex(idx)
-                    }
-                }
-            })
-            Action toggleAction = new AbstractAction() {
-                void actionPerformed(ActionEvent e) {
-                    int idx = columnList.getSelectedIndex()
-                    if (idx != -1) {
-                        ColumnItem item = columnListModel.get(idx)
-                        item.visible = !item.visible
-                        item.onToggle.call(item.visible)
-                        columnListModel.set(idx, item)
-                        columnList.setSelectedIndex(idx)
-                    }
-                }
-            }
-            Action closeAction = new AbstractAction() {
-                void actionPerformed(ActionEvent e) {
-                    columnVisibilityDialog.setVisible(false)
-                }
-            }
-            columnList.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggle")
-            columnList.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "toggle")
-            columnList.getActionMap().put("toggle", toggleAction)
-            columnVisibilityDialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close")
-            columnVisibilityDialog.getRootPane().getActionMap().put("close", closeAction)
-            columnVisibilityDialog.pack()
-            columnVisibilityDialog.setLocationRelativeTo(mainFrame)
-        }
-        
-        private void updateColumnDialogItems() {
-            if (columnListModel == null) return
-            for (int i = 0; i < columnListModel.size(); i++) {
-                ColumnItem item = columnListModel.get(i)
-                if (i == 0) item.visible = !hideFileColumn
-                else if (i == 1) item.visible = !hideStyleColumn
-                else if (i == 2) item.visible = !hidePathColumn
-                else if (i == 3) item.visible = !hideDateColumn
-                else if (i == 4) item.visible = !hideDateCreatedColumn
-                else if (i == 5) item.visible = !hideIconsColumn
-                else if (i == 6) item.visible = !hideTagsColumn
-                else if (i == 7) item.visible = !hideDetailsColumn
-                else if (i == 8) item.visible = !hideNoteColumn
-                else if (i == 9) item.visible = !hideNodeColumn
-                columnListModel.set(i, item)
-            }
-        }
-        
-        private void afterColumnToggle() {
-            TableColumnModel colModel = resultsTable.getColumnModel()
-            for (int i = 0; i < colModel.getColumnCount(); i++) {
-                TableColumn col = colModel.getColumn(i)
-                String header = (String) col.getHeaderValue()
-                int width = col.getWidth()
-                if (width > 0) {
-                    storedColumnWidths.put(header, width)
-                }
-            }
-            rowHeightCache.clear()
-            applySettings()
-            saveSettingsToPrefs()
-            saveFullTableState()
-            updateColumnDialogItems()
-            updateAllRowHeights()
-            fixViewportToRight()
-        }
-        
-        private boolean isColumnHidden(String header) {
-            switch(header) {
-                case "File": return hideFileColumn
-                case "Style": return hideStyleColumn
-                case "Ancestors": return hidePathColumn
-                case "Date Modified": return hideDateColumn
-                case "Date Created": return hideDateCreatedColumn
-                case "Icons": return hideIconsColumn
-                case "Tags": return hideTagsColumn
-                case "Details": return hideDetailsColumn
-                case "Note": return hideNoteColumn
-                case "Node": return hideNodeColumn
-                default: return false
-            }
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Column visibility dialog methods ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ UI helper methods (Buttons, Separators) ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void configureRightControl(AbstractButton button) {
-            button.setHorizontalTextPosition(SwingConstants.RIGHT)
-            button.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-        }
-        
-        private JSeparator createSeparator() {
-            JSeparator sep = new JSeparator(SwingConstants.VERTICAL)
-            Dimension d = new Dimension(6, 35)
-            sep.setMaximumSize(d)
-            sep.setMinimumSize(d)
-            sep.setForeground(Color.ORANGE)
-            sep.setBackground(Color.ORANGE)
-            sep.setOpaque(true)
-            return sep
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ UI helper methods (Buttons, Separators) ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Create main search panel ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private JPanel createSearchPanel() {
-            JPanel mainPanel = new JPanel(new BorderLayout())
-            
-            // Row 1: Search scope radio buttons
-            JPanel row1 = new JPanel()
-            row1.setLayout(new BoxLayout(row1, BoxLayout.LINE_AXIS))
-            row1.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            row1.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
-            
-            folderRadio = new JRadioButton("Path")
-            configureRightControl(folderRadio)
-            folderRadio.setMargin(new Insets(0,0,0,0))
-            folderRadio.setToolTipText("Search in all .mm files in selected folder")
-            
-            openMapsRadio = new JRadioButton("Open Maps")
-            configureRightControl(openMapsRadio)
-            openMapsRadio.setMargin(new Insets(0,0,0,0))
-            openMapsRadio.setToolTipText("Search in all currently open maps")
-            
-            selectedSibRadio = new JRadioButton("Siblings")
-            configureRightControl(selectedSibRadio)
-            selectedSibRadio.setMargin(new Insets(0,0,0,0))
-            selectedSibRadio.setToolTipText("Search sibling nodes of the selected node")
-            
-            selectedDescRadio = new JRadioButton("Branch")
-            configureRightControl(selectedDescRadio)
-            selectedDescRadio.setMargin(new Insets(0,0,0,0))
-            selectedDescRadio.setToolTipText("Search entire branch of selected node")
-            
-            rootRadio = new JRadioButton("Root", true)
-            configureRightControl(rootRadio)
-            rootRadio.setMargin(new Insets(0,0,0,0))
-            rootRadio.setToolTipText("Search from the visible root node")
-            
-            sourceGroup = new ButtonGroup()
-            [folderRadio, openMapsRadio, selectedDescRadio, selectedSibRadio, rootRadio].each { sourceGroup.add(it) }
-            
-            JPanel folderPanel = new JPanel()
-            folderPanel.setLayout(new BoxLayout(folderPanel, BoxLayout.X_AXIS))
-            folderPanel.setOpaque(false)
-            folderPanel.setAlignmentY(Component.CENTER_ALIGNMENT)
-            
-            folderLabel = new JLabel(shortenPath(baseDir))
-            folderLabel.setFont(folderLabel.getFont().deriveFont(Font.PLAIN, 28f))
-            folderLabel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            folderLabel.setHorizontalAlignment(SwingConstants.RIGHT)
-            folderLabel.setPreferredSize(new Dimension(350, 40))
-            folderLabel.setMinimumSize(new Dimension(200, 40))
-            folderLabel.setAlignmentY(Component.CENTER_ALIGNMENT)
-            folderLabel.setToolTipText("Current search folder path")
-            
-            folderChooserBtn = new JButton("📁")
-            folderChooserBtn.setFont(folderChooserBtn.getFont().deriveFont(Font.PLAIN, 40f))
-            folderChooserBtn.setPreferredSize(new Dimension(50, 30))
-            folderChooserBtn.setContentAreaFilled(false)
-            folderChooserBtn.setBorderPainted(false)
-            folderChooserBtn.setFocusPainted(false)
-            folderChooserBtn.setForeground(Color.ORANGE)
-            folderChooserBtn.setAlignmentY(Component.CENTER_ALIGNMENT)
-            folderChooserBtn.setToolTipText("Select folder containing .mm files to search")
-            folderChooserBtn.addActionListener({ selectFolder() })
-            
-            folderPanel.add(folderLabel)
-            folderPanel.add(Box.createHorizontalStrut(15))
-            folderPanel.add(folderChooserBtn)
-            
-            ItemListener folderEnabler = { ItemEvent e ->
-                boolean folderSelected = folderRadio.isSelected()
-                folderChooserBtn.setEnabled(folderSelected)
-                folderLabel.setEnabled(folderSelected)
-            } as ItemListener
-            folderRadio.addItemListener(folderEnabler)
-            openMapsRadio.addItemListener(folderEnabler)
-            selectedDescRadio.addItemListener(folderEnabler)
-            selectedSibRadio.addItemListener(folderEnabler)
-            rootRadio.addItemListener(folderEnabler)
-            
-            row1.add(rootRadio)
-            row1.add(selectedDescRadio)
-            row1.add(selectedSibRadio)
-            row1.add(Box.createHorizontalStrut(5))
-            row1.add(createSeparator())
-            row1.add(Box.createHorizontalStrut(5))
-            row1.add(openMapsRadio)
-            row1.add(folderRadio)
-            row1.add(folderPanel)
-            
-            // Row 2: Search options
-            JPanel row2 = new JPanel()
-            row2.setLayout(new BoxLayout(row2, BoxLayout.LINE_AXIS))
-            row2.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            
-            matchCaseCB = new JCheckBox("Aa")
-            wholeWordCB = new JCheckBox("ww")
-            matchCaseCB.setMargin(new Insets(0,0,0,0))
-            wholeWordCB.setMargin(new Insets(0,0,0,0))
-            matchCaseCB.setHorizontalTextPosition(SwingConstants.RIGHT)
-            matchCaseCB.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-            matchCaseCB.setToolTipText("Case sensitive search")
-            wholeWordCB.setHorizontalTextPosition(SwingConstants.RIGHT)
-            wholeWordCB.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-            wholeWordCB.setToolTipText("Match whole word only")
-            matchCaseCB.addActionListener({ matchCase = matchCaseCB.isSelected(); clearCaches() })
-            wholeWordCB.addActionListener({ wholeWord = wholeWordCB.isSelected(); clearCaches() })
-            
-            styleField = new JTextField(30)
-            styleField.setEnabled(false)
-            styleField.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            styleField.setHorizontalAlignment(JTextField.RIGHT)
-            styleField.setMaximumSize(styleField.getPreferredSize())
-            styleAutoComplete = new AutoCompleteDecorator(styleField, styleHistory, "style", this, false)
-            
-            styleScopeRadio = new JRadioButton("Style")
-            configureRightControl(styleScopeRadio)
-            styleScopeRadio.setMargin(new Insets(0,0,0,0))
-            styleScopeRadio.setToolTipText("Search only nodes with specific style")
-            
-            allScopeRadio = new JRadioButton("All", true)
-            configureRightControl(allScopeRadio)
-            allScopeRadio.setMargin(new Insets(0,0,0,0))
-            allScopeRadio.setToolTipText("Search all nodes regardless of style")
-            
-            ButtonGroup scopeGroup = new ButtonGroup()
-            scopeGroup.add(allScopeRadio); scopeGroup.add(styleScopeRadio)
-            styleScopeRadio.addActionListener({ styleField.setEnabled(styleScopeRadio.isSelected()) })
-            allScopeRadio.addActionListener({ styleField.setEnabled(false); styleField.setText("") })
-            
-            row2.add(allScopeRadio)
-            row2.add(Box.createHorizontalStrut(10))
-            row2.add(styleScopeRadio)
-            row2.add(styleField)
-            row2.add(Box.createHorizontalStrut(10))
-            row2.add(wholeWordCB)
-            row2.add(matchCaseCB)
-            
-            // Row 3: Search field and buttons
-            JPanel row3 = new JPanel()
-            row3.setLayout(new BoxLayout(row3, BoxLayout.LINE_AXIS))
-            row3.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            
-            searchField = new JTextField(30)
-            searchField.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            searchField.setHorizontalAlignment(JTextField.RIGHT)
-            searchField.setMaximumSize(searchField.getPreferredSize())
-            searchAutoComplete = new AutoCompleteDecorator(searchField, searchHistory, "search", this, false)
-            
-            JButton searchBtn = new JButton("🔍")
-            searchBtn.setPreferredSize(new Dimension(50, 30))
-            searchBtn.setToolTipText("Execute search")
-            searchBtn.addActionListener({ doSearch() })
-            
-            noteCheck = new JCheckBox("Note", false)
-            detailsCheck = new JCheckBox("Details", false)
-            coreCheck = new JCheckBox("Core", true)
-            [noteCheck, detailsCheck, coreCheck].each {
-                it.setHorizontalTextPosition(SwingConstants.RIGHT)
-                it.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-            }
-            noteCheck.setToolTipText("Search in node notes")
-            detailsCheck.setToolTipText("Search in node details")
-            coreCheck.setToolTipText("Search in node core text")
-            
-            row3.add(coreCheck)
-            row3.add(detailsCheck)
-            row3.add(noteCheck)
-            row3.add(searchBtn)
-            row3.add(searchField)
-            
-            JPanel topPanel = new JPanel(new GridLayout(3, 1, 0, 2))
-            topPanel.add(row1)
-            topPanel.add(row2)
-            topPanel.add(row3)
-            topPanel.setMinimumSize(new Dimension(0, 0))
-            
-            // Breadcrumb Panel
-            breadcrumbPanel = new JPanel()
-            breadcrumbPanel.setLayout(new BoxLayout(breadcrumbPanel, BoxLayout.LINE_AXIS))
-            breadcrumbPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            breadcrumbPanel.setBackground(UIManager.getColor("Panel.background"))
-            breadcrumbPanel.setVisible(true)
-            
-            // Left Preview Panel
-            leftPreviewPanel = new JPanel(new BorderLayout())
-            leftPreviewPanel.setBorder(BorderFactory.createEmptyBorder())
-            
-            JPanel topPreviewPanel = new JPanel(new BorderLayout())
-            topPreviewPanel.setBackground(leftPreviewPanel.getBackground())
-            
-            styleLabel = new JLabel()
-            styleLabel.setFont(styleLabel.getFont().deriveFont(Font.ITALIC, 10f))
-            styleLabel.setForeground(Color.GRAY)
-            styleLabel.setHorizontalAlignment(SwingConstants.RIGHT)
-            styleLabel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            topPreviewPanel.add(styleLabel, BorderLayout.NORTH)
-            
-            tagViewer = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5))
-            tagViewer.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            tagViewer.setBackground(leftPreviewPanel.getBackground())
-            topPreviewPanel.add(tagViewer, BorderLayout.CENTER)
-            
-            previewCore = new JEditorPane()
-            previewCore.setContentType("text/html")
-            previewCore.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
-            previewCore.setEditable(false)
-            previewCore.setMargin(new Insets(10,10,10,10))
-            previewCore.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            
-            previewDetails = new JEditorPane()
-            previewDetails.setContentType("text/html")
-            previewDetails.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
-            previewDetails.setEditable(false)
-            previewDetails.setMargin(new Insets(10,10,10,10))
-            previewDetails.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            
-            previewNote = new JEditorPane()
-            previewNote.setContentType("text/html")
-            previewNote.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
-            previewNote.setEditable(false)
-            previewNote.setMargin(new Insets(10,10,10,10))
-            previewNote.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            
-            textPanel = new ScrollableTextPanel()
-            textPanel.add(previewCore)
-            textPanel.add(Box.createRigidArea(new Dimension(0, 10)))
-            textPanel.add(previewDetails)
-            textPanel.add(Box.createRigidArea(new Dimension(0, 10)))
-            textPanel.add(previewNote)
-            previewDetails.setVisible(true)
-            previewNote.setVisible(true)
-            
-            JScrollPane previewScroll = new JScrollPane(textPanel)
-            previewScroll.setBorder(BorderFactory.createEmptyBorder())
-            previewScroll.setViewportBorder(BorderFactory.createEmptyBorder())
-            previewScroll.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-            previewScroll.getViewport().setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-            previewScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER)
-            previewScrollPane = previewScroll
-            
-            leftPreviewPanel.add(topPreviewPanel, BorderLayout.NORTH)
-            leftPreviewPanel.add(previewScroll, BorderLayout.CENTER)
-            
-            // Results Table
-            tableModel = new DefaultTableModel(
-                ["File","Style","Ancestors","Date Modified","Date Created","Icons","Tags","Details","Note","Node"] as Object[], 0)
-            resultsTable = new JTable(tableModel)
-            resultsTable.setRowHeight(20)
-            
-            // Setup Tag Drag & Drop
-            setupTagDragAndDrop()
-            
-            // Mouse enter to focus table
-            resultsTable.addMouseListener(new MouseAdapter() {
-                void mouseEntered(MouseEvent e) {
-                    resultsTable.requestFocusInWindow()
-                }
-            })
-            
-            // Right-click context menu
-            resultsTable.addMouseListener(new MouseAdapter() {
-                void mouseClicked(MouseEvent e) {
-                    if (SwingUtilities.isRightMouseButton(e)) {
-                        int row = resultsTable.rowAtPoint(e.getPoint())
-                        if (row != -1) {
-                            if (!resultsTable.isRowSelected(row)) {
-                                resultsTable.setRowSelectionInterval(row, row)
-                            }
-                            JPopupMenu popup = new JPopupMenu()
-                            
-                            JMenuItem copyItem = new JMenuItem("Copy Node(s)")
-                            copyItem.addActionListener({ copySelectedNodesDeep() })
-                            popup.add(copyItem)
-                            
-                            JMenuItem cutItem = new JMenuItem("Cut Node(s)")
-                            cutItem.addActionListener({ cutSelectedNodesDeep() })
-                            popup.add(cutItem)
-                            
-                            JMenuItem pasteItem = new JMenuItem("Paste Node(s) Below")
-                            pasteItem.addActionListener({ pasteNodesFromClipboard() })
-                            popup.add(pasteItem)
-                            popup.addSeparator()
-                            
-                            JMenuItem copyTagItem = new JMenuItem("Copy Tag (Ctrl+Shift+C)")
-                            copyTagItem.addActionListener({ copyTagFromSelectedRow() })
-                            popup.add(copyTagItem)
-                            
-                            JMenuItem pasteTagItem = new JMenuItem("Paste Tag (Ctrl+Shift+V)")
-                            pasteTagItem.addActionListener({ pasteTagToSelectedRows() })
-                            popup.add(pasteTagItem)
-                            popup.addSeparator()
-                            
-                            JMenuItem deleteItem = new JMenuItem("Delete Node from Map")
-                            deleteItem.addActionListener({ deleteSelectedNode() })
-                            popup.add(deleteItem)
-                            
-                            JMenuItem editItem = new JMenuItem("Edit Node")
-                            editItem.addActionListener({ editSelectedNode() })
-                            popup.add(editItem)
-                            
-                            JMenuItem tagItem = new JMenuItem("Add Tag (F8)")
-                            tagItem.addActionListener({ addTagFromSelectedRow() })
-                            popup.add(tagItem)
-                            
-                            popup.show(resultsTable, e.getX(), e.getY())
-                        }
-                    }
-                }
-            })
-            
-            // Single click to go to node
-            resultsTable.addMouseListener(new MouseAdapter() {
-                void mouseClicked(MouseEvent e) {
-                    if (e.clickCount == 1 && SwingUtilities.isLeftMouseButton(e)) {
-                        int row = resultsTable.getSelectedRow()
-                        if (row != -1) {
-                            goToNode(row)
-                        }
-                    }
-                }
-            })
-            
-            // Hover to preview
-            resultsTable.addMouseMotionListener(new MouseMotionAdapter() {
-                private int lastHoverRow = -1
-                void mouseMoved(MouseEvent e) {
-                    Point p = e.getPoint()
-                    int row = resultsTable.rowAtPoint(p)
-                    if (row != -1 && row != lastHoverRow) {
-                        lastHoverRow = row
-                        if (hoverTimer != null) hoverTimer.stop()
-                        hoverTimer = new Timer(200, new ActionListener() {
-                            void actionPerformed(ActionEvent ev) {
-                                if (row < resultsTable.getRowCount() && row == lastHoverRow) {
-                                    resultsTable.setRowSelectionInterval(row, row)
-                                    showNodeDetails(row)
-                                }
-                                hoverTimer.stop()
-                            }
-                        })
-                        hoverTimer.setRepeats(false)
-                        hoverTimer.start()
-                    } else if (row == -1) {
-                        lastHoverRow = -1
-                    }
-                }
-            })
-            
-            // Keyboard navigation
-            resultsTable.addKeyListener(new KeyAdapter() {
-                void keyPressed(KeyEvent e) {
-                    if (e.getKeyCode() == KeyEvent.VK_RIGHT) {
-                        toggleColumnsWithRightArrow()
-                    } else if (e.getKeyCode() == KeyEvent.VK_LEFT) {
-                        toggleColumnsWithLeftArrow()
-                    } else if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                        int row = resultsTable.getSelectedRow()
-                        if (row != -1) {
-                            goToNode(row)
-                            e.consume()
-                        }
-                    }
-                }
-            })
-            
-            // Row selection listener
-            resultsTable.getSelectionModel().addListSelectionListener({ e ->
-                if (e.getValueIsAdjusting()) return
-                int row = resultsTable.getSelectedRow()
-                if (row != -1) {
-                    showNodeDetails(row)
-                } else {
-                    clearPreview()
-                }
-            })
-            
-            // Table settings
-            resultsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION)
-            resultsTable.setSelectionBackground(new Color(200, 255, 200))
-            resultsTable.setSelectionForeground(Color.BLACK)
-            resultsTable.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-            resultsTable.getTableHeader().setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-            resultsTable.setShowHorizontalLines(true)
-            resultsTable.setShowVerticalLines(true)
-            resultsTable.setGridColor(Color.DARK_GRAY)
-            resultsTable.setIntercellSpacing(new Dimension(2, 2))
-            resultsTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF)
-            
-            // RowSorter
-            rowSorter = new TableRowSorter<>(tableModel)
-            rowSorter.setComparator(3, new Comparator<String>() {
-                int compare(String d1, String d2) {
-                    if (d1 == null && d2 == null) return 0
-                    if (d1 == null) return -1
-                    if (d2 == null) return 1
-                    try {
-                        Date date1 = dateFormat.parse(d1)
-                        Date date2 = dateFormat.parse(d2)
-                        return date1.compareTo(date2)
-                    } catch (Exception e) { return d1.compareTo(d2) }
-                }
-            })
-            rowSorter.setComparator(4, new Comparator<String>() {
-                int compare(String d1, String d2) {
-                    if (d1 == null && d2 == null) return 0
-                    if (d1 == null) return -1
-                    if (d2 == null) return 1
-                    try {
-                        Date date1 = dateFormat.parse(d1)
-                        Date date2 = dateFormat.parse(d2)
-                        return date1.compareTo(date2)
-                    } catch (Exception e) { return d1.compareTo(d2) }
-                }
-            })
-            rowSorter.setComparator(2, new Comparator<String>() {
-                int compare(String s1, String s2) {
-                    if (s1 == null && s2 == null) return 0
-                    if (s1 == null) return -1
-                    if (s2 == null) return 1
-                    return s1.compareTo(s2)
-                }
-            })
-            rowSorter.setComparator(6, new Comparator<String>() {
-                int compare(String s1, String s2) {
-                    if (s1 == null && s2 == null) return 0
-                    if (s1 == null) return -1
-                    if (s2 == null) return 1
-                    return s1.compareTo(s2)
-                }
-            })
-            resultsTable.setRowSorter(rowSorter)
-            
-            // Cell Renderers
-            resultsTable.getColumnModel().getColumn(0).setCellRenderer(new FontAwareRenderer(0))
-            resultsTable.getColumnModel().getColumn(1).setCellRenderer(new FontAwareRenderer(1))
-            resultsTable.getColumnModel().getColumn(2).setCellRenderer(new FontAwarePathRenderer())
-            resultsTable.getColumnModel().getColumn(3).setCellRenderer(new FontAwareDateRenderer())
-            resultsTable.getColumnModel().getColumn(4).setCellRenderer(new FontAwareDateRenderer())
-            resultsTable.getColumnModel().getColumn(5).setCellRenderer(new FontAwareIconsRenderer())
-            resultsTable.getColumnModel().getColumn(6).setCellRenderer(new FontAwareTagsRenderer())
-            resultsTable.getColumnModel().getColumn(7).setCellRenderer(new FontAwareHtmlRenderer(7))
-            resultsTable.getColumnModel().getColumn(8).setCellRenderer(new FontAwareHtmlRenderer(8))
-            resultsTable.getColumnModel().getColumn(9).setCellRenderer(new FontAwareNodeRenderer())
-            
-            // Column widths
-            resultsTable.getColumnModel().getColumn(0).setPreferredWidth(120)
-            resultsTable.getColumnModel().getColumn(1).setPreferredWidth(80)
-            resultsTable.getColumnModel().getColumn(2).setPreferredWidth(200)
-            resultsTable.getColumnModel().getColumn(3).setPreferredWidth(100)
-            resultsTable.getColumnModel().getColumn(4).setPreferredWidth(100)
-            resultsTable.getColumnModel().getColumn(5).setPreferredWidth(100)
-            resultsTable.getColumnModel().getColumn(6).setPreferredWidth(80)
-            resultsTable.getColumnModel().getColumn(7).setPreferredWidth(150)
-            resultsTable.getColumnModel().getColumn(8).setPreferredWidth(150)
-            resultsTable.getColumnModel().getColumn(9).setPreferredWidth(350)
-            
-            resultsTable.getColumnModel().getColumn(0).setMinWidth(60)
-            resultsTable.getColumnModel().getColumn(1).setMinWidth(50)
-            resultsTable.getColumnModel().getColumn(2).setMinWidth(80)
-            resultsTable.getColumnModel().getColumn(3).setMinWidth(80)
-            resultsTable.getColumnModel().getColumn(4).setMinWidth(80)
-            resultsTable.getColumnModel().getColumn(5).setMinWidth(60)
-            resultsTable.getColumnModel().getColumn(6).setMinWidth(50)
-            resultsTable.getColumnModel().getColumn(7).setMinWidth(80)
-            resultsTable.getColumnModel().getColumn(8).setMinWidth(80)
-            resultsTable.getColumnModel().getColumn(9).setMinWidth(120)
-            
-            resultsTable.setDefaultEditor(Object, null)
-            
-            // Copy/Cut/Paste shortcuts
-            Action copyAction = new AbstractAction() {
-                void actionPerformed(ActionEvent e) { copySelectedNodesDeep() }
-            }
-            Action cutAction = new AbstractAction() {
-                void actionPerformed(ActionEvent e) { cutSelectedNodesDeep() }
-            }
-            Action pasteAction = new AbstractAction() {
-                void actionPerformed(ActionEvent e) { pasteNodesFromClipboard() }
-            }
-            resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), "copyNodes")
-            resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_X, InputEvent.CTRL_DOWN_MASK), "cutNodes")
-            resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK), "pasteNodes")
-            resultsTable.getActionMap().put("copyNodes", copyAction)
-            resultsTable.getActionMap().put("cutNodes", cutAction)
-            resultsTable.getActionMap().put("pasteNodes", pasteAction)
-            
-            createColumnVisibilityDialog()
-            resultsTable.getTableHeader().addMouseListener(new MouseAdapter() {
-                void mouseClicked(MouseEvent e) {
-                    if (SwingUtilities.isRightMouseButton(e)) {
-                        columnVisibilityDialog.setLocation(e.getXOnScreen(), e.getYOnScreen())
-                        columnVisibilityDialog.setVisible(true)
-                        SwingUtilities.invokeLater(() -> columnList.requestFocusInWindow())
-                    }
-                }
-            })
-        resultsTable.addMouseMotionListener(new MouseMotionAdapter() {
-            private int lastHoverRow = -1
-            void mouseMoved(MouseEvent e) {
-                Point p = e.getPoint()
-                int row = resultsTable.rowAtPoint(p)
-                if (row != -1 && row != lastHoverRow) {
-                    lastHoverRow = row
-                    if (hoverTimer != null) hoverTimer.stop()
-                    hoverTimer = new Timer(200, new ActionListener() {
-                        void actionPerformed(ActionEvent ev) {
-                            if (row < resultsTable.getRowCount() && row == lastHoverRow) {
-                                resultsTable.setRowSelectionInterval(row, row)
-                                showNodeDetails(row)
-                            }
-                            hoverTimer.stop()
-                        }
-                    })
-                    hoverTimer.setRepeats(false)
-                    hoverTimer.start()
-                } else if (row == -1) {
-                    lastHoverRow = -1
-                }
-            }
-        })
-        resultsTable.addKeyListener(new KeyAdapter() {
-            void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_RIGHT) {
-                    toggleColumnsWithRightArrow()
-                } else if (e.getKeyCode() == KeyEvent.VK_LEFT) {
-                    toggleColumnsWithLeftArrow()
-                }
-            }
-        })
-        resultsTable.getSelectionModel().addListSelectionListener({ e ->
-            if (e.getValueIsAdjusting()) return
-            int row = resultsTable.getSelectedRow()
-            if (row != -1) {
-                showNodeDetails(row)
-            } else {
-                clearPreview()
-            }
-        })
-        resultsTable.addMouseListener(new MouseAdapter() {
-            void mouseClicked(MouseEvent e) {
-                if (e.clickCount == 2) { int row = resultsTable.selectedRow; if (row != -1) goToNode(row) }
-            }
-        })
-        resultsTable.addKeyListener(new KeyAdapter() {
-            void keyPressed(KeyEvent e) {
-                if (e.keyCode == KeyEvent.VK_ENTER) { int row = resultsTable.selectedRow; if (row != -1) goToNode(row) }
-            }
-        })
-            tableScroll = new JScrollPane(resultsTable)
-            tableScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED)
-            tableScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED)
-            tableScroll.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-            
-            // Inner SplitPane (Preview | Table)
-            innerSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPreviewPanel, tableScroll)
-            innerSplitPane.setResizeWeight(0.0)
-            innerSplitPane.setContinuousLayout(false)
-            innerSplitPane.setDividerSize(6)
-            innerSplitPane.setOneTouchExpandable(true)
-            innerSplitPane.addPropertyChangeListener("dividerLocation", new PropertyChangeListener() {
-                void propertyChange(PropertyChangeEvent evt) {
-                    SwingUtilities.invokeLater(new Runnable() {
-                        void run() { adjustLastColumnWidth() }
-                    })
-                }
-            })
-            
-            JPanel centerPanel = new JPanel(new BorderLayout())
-            centerPanel.add(breadcrumbPanel, BorderLayout.NORTH)
-            centerPanel.add(innerSplitPane, BorderLayout.CENTER)
-            
-            // Vertical SplitPane (Top controls | Center)
-            verticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topPanel, centerPanel)
-            verticalSplitPane.setResizeWeight(0.0)
-            verticalSplitPane.setOneTouchExpandable(false)
-            verticalSplitPane.setContinuousLayout(false)
-            verticalSplitPane.setDividerSize(8)
-            verticalSplitPane.setMinimumSize(new Dimension(0, 0))
-            verticalSplitPane.addPropertyChangeListener("dividerLocation", new PropertyChangeListener() {
-                void propertyChange(PropertyChangeEvent evt) {
-                    int current = verticalSplitPane.getDividerLocation()
-                    if (current > 20 && current < verticalSplitPane.getHeight() - 50) {
-                        lastVerticalDividerLocation = current
-                        saveColumnWidths()
-                    }
-                }
-            })
-            mainPanel.add(verticalSplitPane, BorderLayout.CENTER)
-            
-            // Bottom Filter Panel
-            JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT))
-            filterPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            filterPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2))
-            
-            filterField = new JTextField(15)
-            filterField.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            filterField.setHorizontalAlignment(JTextField.RIGHT)
-            filterAutoComplete = new AutoCompleteDecorator(filterField, filterHistory, "filter", this, true)
-            filterField.addActionListener({ applyFilter() })
-            filterField.addKeyListener(new KeyAdapter() { void keyReleased(KeyEvent e) { applyFilter() } })
-            
-            // AND/OR buttons
-            JButton andBtn = new JButton("AND")
-            andBtn.setFont(andBtn.getFont().deriveFont(Font.BOLD, 10f))
-            andBtn.setPreferredSize(new Dimension(50, 25))
-            andBtn.setBackground(new Color(200, 230, 255))
-            andBtn.setToolTipText("Add AND to filter expression")
-            andBtn.addActionListener({ 
-                String current = filterField.getText().trim()
-                if (!current.isEmpty() && !current.endsWith(" ")) {
-                    filterField.setText(current + " AND ")
-                } else {
-                    filterField.setText(current + "AND ")
-                }
-                filterField.requestFocus()
-                filterField.setCaretPosition(filterField.getText().length())
-            })
-            
-            JButton orBtn = new JButton("OR")
-            orBtn.setFont(orBtn.getFont().deriveFont(Font.BOLD, 10f))
-            orBtn.setPreferredSize(new Dimension(50, 25))
-            orBtn.setBackground(new Color(255, 200, 200))
-            orBtn.setToolTipText("Add OR to filter expression")
-            orBtn.addActionListener({ 
-                String current = filterField.getText().trim()
-                if (!current.isEmpty() && !current.endsWith(" ")) {
-                    filterField.setText(current + " OR ")
-                } else {
-                    filterField.setText(current + "OR ")
-                }
-                filterField.requestFocus()
-                filterField.setCaretPosition(filterField.getText().length())
-            })
-            
-            upButton = new JButton("↑")
-            upButton.setToolTipText("Previous filtered result")
-            upButton.addActionListener({ navigate(-1) })
-            
-            downButton = new JButton("↓")
-            downButton.setToolTipText("Next filtered result")
-            downButton.addActionListener({ navigate(1) })
-            
-            Action upAction = new AbstractAction() { void actionPerformed(ActionEvent e) { navigate(-1) } }
-            Action downAction = new AbstractAction() { void actionPerformed(ActionEvent e) { navigate(1) } }
-            resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK), "prevMatch")
-            resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, InputEvent.CTRL_DOWN_MASK), "nextMatch")
-            resultsTable.getActionMap().put("prevMatch", upAction)
-            resultsTable.getActionMap().put("nextMatch", downAction)
-            
-        filterPanel.add(orBtn)
-        filterPanel.add(andBtn)
-        filterPanel.add(new JLabel("Filter:")); filterPanel.add(filterField); filterPanel.add(upButton); filterPanel.add(downButton)
-            filterResultLabel = new JLabel("0 results")
-            filterResultLabel.setFont(filterResultLabel.getFont().deriveFont(Font.BOLD))
-        filterPanel.add(filterResultLabel)
-        
-        // ========== Status Bar ==========
-
-        
-        filterPanel.add(new JLabel("Filter:")); filterPanel.add(filterField); filterPanel.add(upButton); filterPanel.add(downButton)
-        filterResultLabel = new JLabel("0 results")
-        filterResultLabel.setFont(filterResultLabel.getFont().deriveFont(Font.BOLD))
-            filterPanel.add(filterResultLabel)
-            
-            // Status Bar
-            JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.RIGHT))
-            statusBar.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            
-            JButton closeBtn = new JButton("✖")
-            closeBtn.setToolTipText("Close MapCrawler")
-            closeBtn.addActionListener({ closePanel() })
-            
-            JButton minimizeBtn = new JButton("_")
-            minimizeBtn.setFont(minimizeBtn.getFont().deriveFont(Font.BOLD, 27f))
-            minimizeBtn.setToolTipText("Minimize/Collapse panel")
-            minimizeBtn.addActionListener({ toggleExpandCollapse() })
-            
-            JButton settingsBtn = new JButton(MenuUtils.getMenuItemIcon('IconAction.' + "emoji-2699"))
-            settingsBtn.setToolTipText("Settings")
-            settingsBtn.setContentAreaFilled(false)
-            settingsBtn.setBorderPainted(false)
-            settingsBtn.addActionListener({ showSettingsDialog() })
-            
-            // Floating breadcrumb toggle button
-            JButton toggleBreadcrumbBtn = new JButton("🍞")
-            toggleBreadcrumbBtn.setToolTipText("Show/Hide floating breadcrumb")
-            toggleBreadcrumbBtn.setContentAreaFilled(false)
-            toggleBreadcrumbBtn.setBorderPainted(false)
-            toggleBreadcrumbBtn.addActionListener({ toggleBreadcrumbOnlyMode() })
-            
-            statusBar.add(toggleBreadcrumbBtn)
-            statusBar.add(closeBtn)
-            statusBar.add(minimizeBtn)
-            statusBar.add(settingsBtn)
-            
-            // Trim mode buttons
-            trimBtn = new JToggleButton("✂️")
-            trimBtn.setToolTipText("Trim mode: shorten text to trim length")
-            trimBtn.addActionListener({ setMode('trim') })
-            statusBar.add(trimBtn)
-            
-            singleBtn = new JToggleButton("‖")
-            singleBtn.setToolTipText("Single line mode: one line per node")
-            singleBtn.addActionListener({ setMode('single') })
-            statusBar.add(singleBtn)
-            
-            fullBtn = new JToggleButton("📄")
-            fullBtn.setToolTipText("Full mode: show complete text")
-            fullBtn.addActionListener({ setMode('full') })
-            statusBar.add(fullBtn)
-            
-            // Trim length spinner
-            SpinnerNumberModel trimSpinnerModel = new SpinnerNumberModel(trimLength, 10, 500, 5)
-            trimSpinner = new JSpinner(trimSpinnerModel)
-            int btnHeight = trimBtn.getPreferredSize().height
-            trimSpinner.setPreferredSize(new Dimension(140, btnHeight))
-            trimSpinner.setFont(trimSpinner.getFont().deriveFont((float)(btnHeight * 0.4)))
-            JComponent editor = trimSpinner.getEditor()
-            if (editor instanceof JSpinner.DefaultEditor) {
-                JTextField textField = ((JSpinner.DefaultEditor) editor).getTextField()
-                textField.setFont(textField.getFont().deriveFont((float)(btnHeight * 0.4)))
-                textField.setColumns(4)
-            }
-            trimSpinner.setToolTipText("Trim text length for display (10-500)")
-            trimSpinner.addChangeListener({ e ->
-                trimLength = trimSpinnerModel.getNumber().intValue()
-                saveTrimLength()
-                if (trimMode || singleLineMode) {
-                    rowHeightCache.clear()
-                    resultsTable.repaint()
-                    updateAllRowHeights()
-                    int row = resultsTable.getSelectedRow()
-                    if (row != -1 && trimMode) showNodeDetails(row)
-                    else if (row != -1 && singleLineMode) resultsTable.repaint()
-                }
-            })
-            statusBar.add(trimSpinner)
-            
-            // Ancestor trim length spinner
-            SpinnerNumberModel ancestorTrimModel = new SpinnerNumberModel(ancestorTrimLength, 10, 200, 5)
-            ancestorTrimSpinner = new JSpinner(ancestorTrimModel)
-            ancestorTrimSpinner.setPreferredSize(new Dimension(150, btnHeight))
-            ancestorTrimSpinner.setToolTipText("Trim length for ancestor path display (10-200)")
-            ancestorTrimSpinner.addChangeListener({ e ->
-                ancestorTrimLength = ancestorTrimModel.getNumber().intValue()
-                saveAncestorTrimLength()
-                clearCaches()
-                resultsTable.repaint()
-                refreshBreadcrumb()
-            })
-            statusBar.add(ancestorTrimSpinner)
-            
-            // Reverse path button
-            reversePathBtn = new JToggleButton("↺")
-            reversePathBtn.setToolTipText("Reverse order of ancestor path")
-            reversePathBtn.addActionListener({ e ->
-                reverseAncestorOrder = reversePathBtn.isSelected()
-                saveReverseOrderSetting()
-                pathCache.clear()
-                for (int i = 0; i < tableModel.getRowCount(); i++) {
-                    Object val = tableModel.getValueAt(i, 9)
-                    if (val instanceof Object[] && ((Object[])val).length > 0) {
-                        Node node = ((Object[])val)[0] as Node
-                        if (node != null) {
-                            String newPath = getAncestorsPathCached(node)
-                            tableModel.setValueAt(newPath, i, 2)
-                        }
-                    }
-                }
-                refreshBreadcrumb()
-            })
-            statusBar.add(reversePathBtn)
-            
-            // Ancestor mode button (View Root filter)
-            ancestorModeBtn = new JToggleButton(useVisibleRootOnly ? "👁️" : "🗺️")
-            ancestorModeBtn.setToolTipText(useVisibleRootOnly ? 
-                "View Root filter active - showing only visible nodes" : 
-                "Full map view - showing all nodes")
-            ancestorModeBtn.addActionListener({ toggleAncestorMode() })
-            statusBar.add(ancestorModeBtn)
-            
-            resultCountLabel = new JLabel("0 results")
-            resultCountLabel.setHorizontalAlignment(SwingConstants.RIGHT)
-            resultCountLabel.setFont(resultCountLabel.getFont().deriveFont(Font.BOLD))
-            
-            JButton infoButton = new JButton("ℹ️")
-            infoButton.setContentAreaFilled(false)
-            infoButton.setBorderPainted(false)
-            infoButton.setToolTipText("Help - Shortcuts and usage")
-            infoButton.addActionListener({ e ->
-                String message = "1. Alt+J to collapse/expand.\n" +
-                                 "2. Open Maps and Path search all nodes, Root/Siblings/Branch search only visible nodes.\n" +
-                                 "3. Benefits: View results as a list for better focus."
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), message, "Help", JOptionPane.INFORMATION_MESSAGE)
-            })
-            
-            statusBar.add(Box.createHorizontalGlue())
-            statusBar.add(Box.createRigidArea(new Dimension(10, 0)))
-            statusBar.add(infoButton)
-            
-            JPanel bottomPanel = new JPanel(new BorderLayout())
-            bottomPanel.add(filterPanel, BorderLayout.NORTH)
-            bottomPanel.add(statusBar, BorderLayout.SOUTH)
-            mainPanel.add(bottomPanel, BorderLayout.SOUTH)
-            
-            // Delete action
-            Action deleteAction = new AbstractAction() {
-                void actionPerformed(ActionEvent e) {
-                    deleteSelectedNode()
-                }
-            }
-            resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "deleteNode")
-            resultsTable.getActionMap().put("deleteNode", deleteAction)
-            mainPanel.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "deleteNodeGlobal")
-            mainPanel.getActionMap().put("deleteNodeGlobal", deleteAction)
-            breadcrumbPanel.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "deleteNodeBread")
-            breadcrumbPanel.getActionMap().put("deleteNodeBread", deleteAction)
-            leftPreviewPanel.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "deleteNodeLeft")
-            leftPreviewPanel.getActionMap().put("deleteNodeLeft", deleteAction)
-            
-            searchBtn.addActionListener({ doSearch() })
-            searchField.addActionListener({ doSearch() })
-            
-            Action spaceAction = new AbstractAction() {
-                void actionPerformed(ActionEvent e) {
-                    Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()
-                    if (!(focusOwner instanceof JTextField || focusOwner instanceof JTextArea)) focusSearchField()
-                }
-            }
-            mainPanel.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke("SPACE"), "focusSearch")
-            mainPanel.getActionMap().put("focusSearch", spaceAction)
-            
-            updateModeDependencies()
-            mainPanel.addMouseListener(new MouseAdapter() {
-                void mouseEntered(MouseEvent e) {
-                    if (!resultsTable.hasFocus()) {
-                        resultsTable.requestFocusInWindow()
-                    }
-                }
-                void mouseExited(MouseEvent e) {
-                    SwingUtilities.invokeLater {
-                        try {
-                            def mapView = Controller.getCurrentController().getMapViewManager().getMapViewComponent()
-                            if (mapView != null) mapView.requestFocusInWindow()
-                        } catch (Exception ex) { }
-                    }
-                }
-            })
-            mainPanel.setFocusable(true)
-            return mainPanel
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Create main search panel ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Helper Methods: Get active view root, etc. ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private Node getActiveViewRoot() {
-            try {
-                return ScriptUtils.c().viewRoot
-            } catch (Exception e) {
-                return null
-            }
-        }
-        
-        private String computeAncestorsPath(Node node, boolean visibleOnly) {
-            if (node == null) return ""
-            def fullPath = node.getPathToRoot()
-            if (fullPath == null || fullPath.isEmpty()) return ""
-            if (!fullPath[0].isRoot()) {
-                fullPath = fullPath.reverse()
-            }
-            if (fullPath.size() <= 1) return ""
-            def ancestors = fullPath[0..-2]
-            if (visibleOnly) {
-                def viewRoot = getActiveViewRoot()
-                if (viewRoot != null && node.mindMap == viewRoot.mindMap) {
-                    int idx = fullPath.indexOf(viewRoot)
-                    if (idx >= 0) {
-                        if (idx < fullPath.size() - 1) {
-                            ancestors = fullPath[idx..-2]
-                        } else {
-                            ancestors = []
-                        }
-                    }
-                }
-            }
-            def names = ancestors.collect { it.plainText ?: "?" }
-            if (reverseAncestorOrder) {
-                return names.reverse().join(" → ")
-            } else {
-                return names.join(" ← ")
-            }
-        }
-        
-        private String getAncestorsPathCached(Node node) {
-            if (node == null) return ""
-            String key = "${node.getId()}_rev${reverseAncestorOrder}_vis${useVisibleRootOnly}"
-            if (pathCache.containsKey(key)) return pathCache.get(key)
-            String path = computeAncestorsPath(node, useVisibleRootOnly)
-            pathCache.put(key, path)
-            return path
-        }
-        
-        private void refreshAllPaths() {
-            pathCache.clear()
-            for (int i = 0; i < tableModel.getRowCount(); i++) {
-                Object val = tableModel.getValueAt(i, 9)
-                if (val instanceof Object[] && ((Object[])val).length > 0) {
-                    Node node = ((Object[])val)[0] as Node
-                    if (node != null) {
-                        String newPath = getAncestorsPathCached(node)
-                        tableModel.setValueAt(newPath, i, 2)
-                    }
-                }
-            }
-            resultsTable.repaint()
-        }
-        
-        private void toggleAncestorMode() {
-            useVisibleRootOnly = !useVisibleRootOnly
-            ancestorModeBtn.setText(useVisibleRootOnly ? "👁️" : "🗺️")
-            ancestorModeBtn.setToolTipText(useVisibleRootOnly ? 
-                "View Root filter active - showing only visible nodes" : 
-                "Full map view - showing all nodes")
-            saveSettingsToPrefs()
-            refreshAllPaths()
-            int selRow = resultsTable.getSelectedRow()
-            if (selRow != -1) showNodeDetails(selRow)
-            else clearPreview()
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Helper Methods: Get active view root, etc. ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Clear caches & collect visible nodes ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void clearCaches() {
-            pathCache.clear()
-            rowHeightCache.clear()
-            resultsTable.repaint()
-        }
-        
-        private List<Node> collectVisibleNodes(Node root) {
-            if (root == null) return new ArrayList<>()
-            List<Node> result = new ArrayList<>()
-            Deque<Node> queue = new ArrayDeque<>()
-            queue.offer(root)
-            while (!queue.isEmpty()) {
-                Node node = queue.poll()
-                try {
-                    if (node.isVisible()) {
-                        result.add(node)
-                    }
-                    List<Node> children = new ArrayList<>(node.children)
-                    for (Node child : children) {
-                        queue.offer(child)
-                    }
-                } catch (Exception e) {
-                    System.err.println("Error processing node: ${node?.plainText} - ${e.message}")
-                }
-            }
-            return result
-        }
-        
-        private void refreshBreadcrumb() {
-            int row = resultsTable.getSelectedRow()
-            if (row != -1) showNodeDetails(row)
-        }
-        
-        private void updateResultCount() {
-            if (resultCountLabel != null) {
-                int count = resultsTable.getRowCount()
-                resultCountLabel.setText("$count result${count != 1 ? 's' : ''}")
-                if (filterResultLabel != null) filterResultLabel.setText("$count result${count != 1 ? 's' : ''}")
-            }
-            if (filterResultLabel != null) filterResultLabel.setText(resultsTable.getRowCount() + " result" + (resultsTable.getRowCount() != 1 ? "s" : ""))
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Clear caches & collect visible nodes ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Column Toggle with Arrow Keys ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void toggleColumnsWithRightArrow() {
-            if (!hideFileColumn) {
-                hideFileColumn = true
-            } else if (!hideStyleColumn) {
-                hideStyleColumn = true
-            } else if (!hidePathColumn) {
-                hidePathColumn = true
-            } else if (!hideDateColumn) {
-                hideDateColumn = true
-            } else if (!hideDateCreatedColumn) {
-                hideDateCreatedColumn = true
-            } else if (!hideIconsColumn) {
-                hideIconsColumn = true
-            } else if (!hideTagsColumn) {
-                hideTagsColumn = true
-            } else if (!hideDetailsColumn) {
-                hideDetailsColumn = true
-            } else if (!hideNoteColumn) {
-                hideNoteColumn = true
-            } else {
-                return
-            }
-            rowHeightCache.clear()
-            applySettings()
-            saveSettingsToPrefs()
-            saveColumnWidths()
-            updateColumnDialogItems()
-        }
-        
-        private void toggleColumnsWithLeftArrow() {
-            if (hideNoteColumn && hideDetailsColumn && hideTagsColumn && hideIconsColumn && hideDateCreatedColumn && hideDateColumn && hidePathColumn && hideStyleColumn && hideFileColumn) {
-                hideNoteColumn = false
-            } else if (hideDetailsColumn && hideTagsColumn && hideIconsColumn && hideDateCreatedColumn && hideDateColumn && hidePathColumn && hideStyleColumn && hideFileColumn) {
-                hideDetailsColumn = false
-            } else if (hideTagsColumn && hideIconsColumn && hideDateCreatedColumn && hideDateColumn && hidePathColumn && hideStyleColumn && hideFileColumn) {
-                hideTagsColumn = false
-            } else if (hideIconsColumn && hideDateCreatedColumn && hideDateColumn && hidePathColumn && hideStyleColumn && hideFileColumn) {
-                hideIconsColumn = false
-            } else if (hideDateCreatedColumn && hideDateColumn && hidePathColumn && hideStyleColumn && hideFileColumn) {
-                hideDateCreatedColumn = false
-            } else if (hideDateColumn && hidePathColumn && hideStyleColumn && hideFileColumn) {
-                hideDateColumn = false
-            } else if (hidePathColumn && hideStyleColumn && hideFileColumn) {
-                hidePathColumn = false
-            } else if (hideStyleColumn && hideFileColumn) {
-                hideStyleColumn = false
-            } else if (hideFileColumn) {
-                hideFileColumn = false
-            } else {
-                return
-            }
-            rowHeightCache.clear()
-            applySettings()
-            saveSettingsToPrefs()
-            saveColumnWidths()
-            updateColumnDialogItems()
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Column Toggle with Arrow Keys ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Display Mode Methods ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void setMode(String mode) {
-            if (mode == 'trim') {
-                trimMode = true
-                singleLineMode = false
-                fullMode = false
-            } else if (mode == 'single') {
-                trimMode = false
-                singleLineMode = true
-                fullMode = false
-            } else if (mode == 'full') {
-                trimMode = false
-                singleLineMode = false
-                fullMode = true
-            }
-            updateModeDependencies()
-            saveModeSettings()
-            rowHeightCache.clear()
-            JScrollPane tableScroll = (JScrollPane) resultsTable.getParent().getParent()
-            if (tableScroll != null) {
-                tableScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED)
-            }
-            resultsTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF)
-            updateBaseLineHeight()
-            updateAllRowHeights()
-            adjustLastColumnWidth()
-            resultsTable.revalidate()
-            resultsTable.repaint()
-            int row = resultsTable.getSelectedRow()
-            if (row != -1) {
-                showNodeDetails(row)
-            }
-            updateResultCount()
-        }
-        
-        private void updateModeDependencies() {
-            trimBtn.setSelected(trimMode)
-            singleBtn.setSelected(singleLineMode)
-            fullBtn.setSelected(fullMode)
-            if (trimSpinner != null) {
-                trimSpinner.setEnabled(trimMode || singleLineMode)
-            }
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Display Mode Methods ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-      
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Cell Renderer Classes ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        class FontAwareRenderer extends DefaultTableCellRenderer {
-            private int columnIndex
-            FontAwareRenderer(int col) { columnIndex = col }
-            private Node getNodeAtRow(JTable table, int row) {
-                int modelRow = table.convertRowIndexToModel(row)
-                Object value = table.getModel().getValueAt(modelRow, 9)
-                if (value instanceof Object[] && ((Object[])value).length > 0) return ((Object[])value)[0] as Node
-                if (value instanceof Node) return value as Node
-                return null
-            }
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-                String originalText = node?.plainText ?: ""
-                String displayText = originalText
-                if (trimMode && !singleLineMode && !fullMode) {
-                    if (displayText.length() > trimLength)
-                        displayText = TextUtils.getShortText(displayText, trimLength, "\u2026")
-                } else if (singleLineMode) {
-                    if (displayText.length() > trimLength)
-                        displayText = TextUtils.getShortText(displayText, trimLength, "\u2026")
-                    TableColumn tableCol = table.getColumnModel().getColumn(9)
-                    int colWidth = tableCol.getWidth()
-                    int padding = 21
-                    int availableWidth = colWidth - padding
-                    if (availableWidth > 0) {
-                        Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
-                        FontMetrics fm = getFontMetrics(useFont)
-                        String ellipsis = "\u2026"
-                        int ellipsisWidth = fm.stringWidth(ellipsis)
-                        if (fm.stringWidth(displayText) > availableWidth) {
-                            for (int i = displayText.length(); i > 0; i--) {
-                                String sub = displayText.substring(0, i)
-                                if (fm.stringWidth(sub) + ellipsisWidth <= availableWidth) {
-                                    displayText = sub + ellipsis
-                                    break
-                                }
-                            }
-                        }
-                    }
-                }
-                // Multi-word highlight
-                String highlightWord = null
-                if (currentFilterText != null && !currentFilterText.isEmpty())
-                    highlightWord = currentFilterText
-                else if (lastSearchKeyword != null && !lastSearchKeyword.isEmpty())
-                    highlightWord = lastSearchKeyword
-                if (highlightWord != null && !highlightWord.isEmpty()) {
-                    List<String> wordsToHighlight = []
-                    if (highlightWord.contains("|")) {
-                        wordsToHighlight = highlightWord.split("\\|").collect { it.trim() }.findAll { !it.isEmpty() }
-                    } else {
-                        wordsToHighlight = [highlightWord]
-                    }
-                    for (String word : wordsToHighlight) {
-                        if (word.isEmpty()) continue
-                        String patternStr = Pattern.quote(word)
-                        try {
-                            int flags = matchCase ? 0 : Pattern.CASE_INSENSITIVE
-                            Pattern p = Pattern.compile("($patternStr)", flags)
-                            Matcher m = p.matcher(displayText)
-                            StringBuffer sb = new StringBuffer()
-                            while (m.find())
-                                m.appendReplacement(sb, "<span style='background-color: yellow;'>\$1</span>")
-                            m.appendTail(sb)
-                            displayText = sb.toString()
-                        } catch (Exception e) {}
-                    }
-                }
-                if (singleLineMode) {
-                    JLabel label = new JLabel()
-                    label.setOpaque(true)
-                    Color nodeBg = getNodeBackgroundColor(node)
-                    Color nodeFg = getNodeForegroundColor(node)
-                    if (isSelected) {
-                        label.setBackground(table.getSelectionBackground())
-                        label.setForeground(table.getSelectionForeground())
-                    } else {
-                        if (nodeBg != null) {
-                            label.setBackground(nodeBg)
-                        } else {
-                            label.setBackground(table.getBackground())
-                        }
-                        if (nodeFg != null) {
-                            label.setForeground(nodeFg)
-                        } else {
-                            label.setForeground(table.getForeground())
-                        }
-                    }
-                    Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
-                    label.setFont(useFont)
-                    label.setText(displayText)
-                    label.setHorizontalAlignment(SwingConstants.LEFT)
-                    label.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                    label.setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createMatteBorder(0, 5, 0, 0, getBorderColorForNode(node)),
-                        BorderFactory.createEmptyBorder(2, 8, 2, 8)
-                    ))
-                    return label
-                } else {
-                    String htmlText = displayText.contains("<span") ? displayText : escapeHtml(displayText)
-                    Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
-                    setFont(useFont)
-                    String styleAttr = "font-family: " + useFont.getFamily() + "; font-size: " + useFont.getSize() + "pt; direction: rtl; text-align: right; margin: 0; padding: 0; line-height: normal;"
-                    if (!fullMode) styleAttr += " white-space: normal;" else styleAttr += " white-space: normal;"
-                    setText("<html><body style='" + styleAttr + "'>" + htmlText + "</body></html>")
-                    setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createMatteBorder(0, 5, 0, 0, getBorderColorForNode(node)),
-                        BorderFactory.createEmptyBorder(2, 8, 2, 8)
-                    ))
-                    Color nodeBg = getNodeBackgroundColor(node)
-                    Color nodeFg = getNodeForegroundColor(node)
-                    if (isSelected) {
-                        setBackground(table.getSelectionBackground())
-                        setForeground(table.getSelectionForeground())
-                    } else {
-                        if (nodeBg != null) {
-                            setBackground(nodeBg)
-                        } else {
-                            setBackground(table.getBackground())
-                        }
-                        if (nodeFg != null) {
-                            setForeground(nodeFg)
-                        } else {
-                            setForeground(table.getForeground())
-                        }
-                    }
-                    return this
-                }
-            }
-        }
-        
-        class FontAwareDateRenderer extends DefaultTableCellRenderer {
-            FontAwareDateRenderer() { setHorizontalAlignment(SwingConstants.CENTER) }
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, col)
-                Font f = (col == 3) ? fontDateColumn : fontDateCreatedColumn
-                if (f != null) setFont(f)
-                setHorizontalAlignment(SwingConstants.CENTER)
-                setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
-                return this
-            }
-        }
-        
-        class FontAwarePathRenderer extends JTextArea implements TableCellRenderer {
-            FontAwarePathRenderer() {
-                setOpaque(true)
-                setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
-                setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                setLineWrap(true)
-                setWrapStyleWord(true)
-            }
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                String originalText = (value != null) ? value.toString() : ""
-                String displayText = originalText
-                if (!fullMode) {
-                    int columnWidth = table.getColumnModel().getColumn(col).getWidth()
-                    String flatText = originalText.replace('\n', ' ')
-                    FontMetrics fm = getFontMetrics(getFont())
-                    int textWidth = fm.stringWidth(flatText)
-                    if (textWidth + 10 > columnWidth) {
-                        String ellipsis = "\u2026"
-                        int ellipsisWidth = fm.stringWidth(ellipsis)
-                        int availableWidth = columnWidth - 10 - ellipsisWidth
-                        if (availableWidth > 0) {
-                            StringBuilder sb = new StringBuilder()
-                            for (int i = 0; i < flatText.length(); i++) {
-                                sb.append(flatText.charAt(i))
-                                if (fm.stringWidth(sb.toString()) > availableWidth) {
-                                    sb.deleteCharAt(sb.length() - 1)
-                                    break
-                                }
-                            }
-                            displayText = sb.toString() + ellipsis
-                        } else {
-                            displayText = ellipsis
-                        }
-                    }
-                }
-                setText(displayText)
-                Font useFont = (fontPathColumn != null) ? fontPathColumn : new Font("Segoe UI", Font.PLAIN, 14)
-                setFont(useFont)
-                setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                setForeground(table.getForeground())
-                setBackground(isSelected ? table.getSelectionBackground() : table.getBackground())
-                if (!disableTooltips && !originalText.equals(displayText)) {
-                    setToolTipText(originalText)
-                } else {
-                    setToolTipText(null)
-                }
-                int colWidth = table.getColumnModel().getColumn(col).getWidth()
-                setSize(colWidth, Short.MAX_VALUE)
-                return this
-            }
-        }
-        
-        class FontAwareIconsRenderer extends JPanel implements TableCellRenderer {
-            FontAwareIconsRenderer() {
-                setLayout(new FlowLayout(FlowLayout.LEFT, 2, 2))
-                setOpaque(true)
-            }
-            private Node getNodeFromTable(JTable table, int row) {
-                int modelRow = table.convertRowIndexToModel(row)
-                Object value = table.getModel().getValueAt(modelRow, 9)
-                if (value instanceof Object[] && ((Object[])value).length > 0) return ((Object[])value)[0] as Node
-                if (value instanceof Node) return value as Node
-                return null
-            }
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                removeAll()
-                Node node = getNodeFromTable(table, row)
-                if (node == null) {
-                    setBackground(isSelected ? table.getSelectionBackground() : table.getBackground())
-                    return this
-                }
-                StringBuilder fullTooltip = new StringBuilder()
-                NodeModel nodeModel = getNodeModel(node)
-                def icons = iconController().getIcons(nodeModel, StyleOption.FOR_UNSELECTED_NODE)
-                icons.each { namedIcon ->
-                    if (namedIcon.getIcon() != null) {
-                        JLabel label = new JLabel(namedIcon.getIcon())
-                        label.setToolTipText(namedIcon.getName())
-                        add(label)
-                        if (fullTooltip.length() > 0) fullTooltip.append(", ")
-                        fullTooltip.append(namedIcon.getName())
-                    }
-                }
-                if (fullTooltip.length() > 0) setToolTipText(fullTooltip.toString())
-                else setToolTipText(null)
-                if (isSelected) {
-                    setBackground(table.getSelectionBackground())
-                    setForeground(table.getSelectionForeground())
-                } else {
-                    setBackground(table.getBackground())
-                    setForeground(table.getForeground())
-                }
-                setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                return this
-            }
-        }
-        
-        class FontAwareTagsRenderer extends JPanel implements TableCellRenderer {
-            FontAwareTagsRenderer() {
-                setLayout(new FlowLayout(FlowLayout.LEFT, 2, 2))
-                setOpaque(true)
-            }
-            private Node getNodeFromTable(JTable table, int row) {
-                int modelRow = table.convertRowIndexToModel(row)
-                Object value = table.getModel().getValueAt(modelRow, 9)
-                if (value instanceof Object[] && ((Object[])value).length > 0) return ((Object[])value)[0] as Node
-                if (value instanceof Node) return value as Node
-                return null
-            }
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                removeAll()
-                Node node = getNodeFromTable(table, row)
-                if (node == null) {
-                    setBackground(isSelected ? table.getSelectionBackground() : table.getBackground())
-                    return this
-                }
-                List<String> tagNames = new ArrayList<>()
-                NodeModel nodeModel = getNodeModel(node)
-                def tags = iconController().getTagIcons(nodeModel)
-                def sortedTags = tags.sort { a, b ->
-                    String nameA = getNameFromTagIcon(a)
-                    String nameB = getNameFromTagIcon(b)
-                    nameA.compareToIgnoreCase(nameB)
-                }
-                sortedTags.each { tag ->
-                    if (tag instanceof Icon) {
-                        JLabel label = new JLabel(tag)
-                        String tagName = getNameFromTagIcon(tag)
-                        label.setToolTipText(tagName)
-                        add(label)
-                        tagNames.add(tagName)
-                    } else if (tag instanceof JLabel) {
-                        String tagName = getNameFromTagIcon(tag)
-                        tag.setToolTipText(tagName)
-                        add(tag)
-                        tagNames.add(tagName)
-                    } else {
-                        String txt = tag.toString()
-                        String tagName = getNameFromTagIcon(tag)
-                        JLabel label = new JLabel(txt)
-                        label.setToolTipText(tagName)
-                        add(label)
-                        tagNames.add(tagName)
-                    }
-                }
-                if (!tagNames.isEmpty()) {
-                    String tooltipText = "<html>" + tagNames.join("<br>") + "</html>"
-                    setToolTipText(tooltipText)
-                } else {
-                    setToolTipText(null)
-                }
-                if (isSelected) {
-                    setBackground(table.getSelectionBackground())
-                    setForeground(table.getSelectionForeground())
-                } else {
-                    setBackground(table.getBackground())
-                    setForeground(table.getForeground())
-                }
-                setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                return this
-            }
-            private String getNameFromTagIcon(Object tagIcon) {
-                if (tagIcon == null) return ""
-                if (tagIcon instanceof NamedIcon) {
-                    return tagIcon.getName() ?: tagIcon.toString()
-                }
-                if (tagIcon instanceof JLabel) {
-                    return tagIcon.getToolTipText() ?: tagIcon.getText() ?: ""
-                }
-                String className = tagIcon.getClass().getName()
-                if (className.contains("TagIcon")) {
-                    try {
-                        Field field = tagIcon.getClass().getDeclaredField("tag")
-                        field.setAccessible(true)
-                        Object tagValue = field.get(tagIcon)
-                        if (tagValue != null) {
-                            String tagStr = tagValue.toString()
-                            if (tagStr.contains("=")) {
-                                int eqIdx = tagStr.lastIndexOf("=")
-                                if (eqIdx != -1) tagStr = tagStr.substring(eqIdx + 1)
-                            }
-                            if (tagStr.contains(",")) tagStr = tagStr.split(",")[0]
-                            return tagStr.trim()
-                        }
-                    } catch (Exception ignored) {}
-                    String str = tagIcon.toString()
-                    def matcher = (str =~ /tag=(.*?)(?:,|$)/)
-                    if (matcher.find()) return matcher.group(1).trim()
-                    return str
-                }
-                return tagIcon.toString()
-            }
-        }
-        
-        class FontAwareHtmlRenderer extends JLabel implements TableCellRenderer {
-            private int columnIndex
-            FontAwareHtmlRenderer(int col) {
-                this.columnIndex = col
-                setOpaque(true)
-                setVerticalAlignment(SwingConstants.TOP)
-                setHorizontalAlignment(SwingConstants.RIGHT)
-                setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            }
-            @Override
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                Node node = null
-                int modelRow = table.convertRowIndexToModel(row)
-                Object nodeValue = table.getModel().getValueAt(modelRow, 9)
-                if (nodeValue instanceof Object[] && ((Object[])nodeValue).length > 0) {
-                    node = ((Object[])nodeValue)[0] as Node
-                } else if (nodeValue instanceof Node) {
-                    node = nodeValue as Node
-                }
-                Font useFont = (columnIndex == 7) ? fontDetailsColumn : fontNoteColumn
-                if (useFont == null) useFont = table.getFont()
-                int colWidth = table.getColumnModel().getColumn(col).getWidth()
-                String rawText = (value != null) ? value.toString() : ""
-                if (columnIndex == 7 && node?.getDetails()?.getHtml()) {
-                    rawText = node.getDetails().getHtml()
-                } else if (columnIndex == 8 && node?.getNote()?.getHtml()) {
-                    rawText = node.getNote().getHtml()
-                }
-                String styledContent = getStyledCellContent(rawText, node, useFont, true, colWidth)
-                setText("<html>${styledContent}</html>")
-                setFont(useFont)
-                Color nodeBg = getNodeBackgroundColor(node)
-                setBackground(nodeBg ?: table.getBackground())
-                if (!singleLineMode || !rawText.trim().startsWith("<")) {
-                    Color nodeFg = getNodeForegroundColor(node)
-                    setForeground(nodeFg ?: table.getForeground())
-                }
-                Border originalBorder = BorderFactory.createEmptyBorder(2, 5, 2, 5)
-                if (isSelected) {
-                    Border blueBorder = BorderFactory.createLineBorder(Color.BLUE, 2)
-                    setBorder(BorderFactory.createCompoundBorder(blueBorder, originalBorder))
-                } else {
-                    setBorder(originalBorder)
-                }
-                return this
-            }
-        }
-        
-        class FontAwareNodeRenderer extends JLabel implements TableCellRenderer {
-            FontAwareNodeRenderer() {
-                setOpaque(true)
-                setVerticalAlignment(SwingConstants.TOP)
-                setHorizontalAlignment(SwingConstants.RIGHT)
-                setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            }
-            @Override
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-                if (node == null) {
-                    setText("")
-                    return this
-                }
-                Font useFont = (fontWeightColumn != null) ? fontWeightColumn : table.getFont()
-                int colWidth = table.getColumnModel().getColumn(9).getWidth()
-                String rawText = node.getHtmlText() ?: node.getPlainText()
-                String content = rawText
-                boolean isHtml = rawText != null && rawText.trim().startsWith("<")
-                if (!isHtml) {
-                    content = escapeHtml(rawText).replace("\n", "<br>")
-                }
-                // Multi-word highlight
-                String highlightWord = (currentFilterText != null && !currentFilterText.isEmpty()) ? currentFilterText : lastSearchKeyword
-                if (highlightWord != null && !highlightWord.isEmpty()) {
-                    List<String> wordsToHighlight = []
-                    if (highlightWord.contains("|")) {
-                        wordsToHighlight = highlightWord.split("\\|").collect { it.trim() }.findAll { !it.isEmpty() }
-                    } else {
-                        wordsToHighlight = [highlightWord]
-                    }
-                    for (String word : wordsToHighlight) {
-                        if (word.isEmpty()) continue
-                        String patternStr = Pattern.quote(word)
-                        try {
-                            int flags = matchCase ? 0 : Pattern.CASE_INSENSITIVE
-                            Pattern p = Pattern.compile("($patternStr)", flags)
-                            Matcher m = p.matcher(content)
-                            StringBuffer sb = new StringBuffer()
-                            while (m.find()) {
-                                m.appendReplacement(sb, "<span style='background-color: yellow;'>\$1</span>")
-                            }
-                            m.appendTail(sb)
-                            content = sb.toString()
-                        } catch (Exception e) {}
-                    }
-                }
-                Color fgColor = getNodeForegroundColor(node)
-                String colorStyle = (fgColor != null) ? "color: rgb(${fgColor.red}, ${fgColor.green}, ${fgColor.blue});" : ""
-                String family = useFont.getFamily()
-                int size = useFont.getSize()
-                String weight = useFont.isBold() ? "bold" : "normal"
-                String styleFlag = useFont.isItalic() ? "italic" : "normal"
-                String wrapperStyle = "font-family: ${family}; font-size: ${size}pt; font-weight: ${weight}; font-style: ${styleFlag}; ${colorStyle} margin:0; padding:0; direction: rtl; text-align: right;"
-                wrapperStyle += " white-space: normal;"
-                setText("<html><div style=\"${wrapperStyle}\">${content}</div></html>")
-                setFont(useFont)
-                Color nodeBg = getNodeBackgroundColor(node)
-                setBackground(nodeBg ?: table.getBackground())
-                Color nodeFg = getNodeForegroundColor(node)
-                setForeground(nodeFg ?: table.getForeground())
-                Border leftColorBorder = BorderFactory.createMatteBorder(0, 5, 0, 0, getBorderColorForNode(node))
-                Border paddingBorder = BorderFactory.createEmptyBorder(2, 8, 2, 8)
-                Border originalBorder = BorderFactory.createCompoundBorder(leftColorBorder, paddingBorder)
-                if (isSelected) {
-                    Border selectionBorder = BorderFactory.createLineBorder(Color.BLUE, 2)
-                    setBorder(BorderFactory.createCompoundBorder(selectionBorder, originalBorder))
-                } else {
-                    setBorder(originalBorder)
-                }
-                return this
-            }
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Cell Renderer Classes ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Show Settings Dialog ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void showSettingsDialog() {
-            if (settingsDialog != null && settingsDialog.isVisible()) { settingsDialog.toFront(); return }
-            settingsDialog = new JDialog(UITools.getCurrentFrame(), "Settings", true)
-            settingsDialog.setLayout(new BorderLayout())
-            JPanel contentPanel = new JPanel(new GridBagLayout())
-            GridBagConstraints gbc = new GridBagConstraints()
-            gbc.insets = new Insets(5, 10, 5, 10)
-            gbc.anchor = GridBagConstraints.WEST
-            gbc.gridx = 0
-            gbc.gridwidth = 2
-            gbc.fill = GridBagConstraints.HORIZONTAL
-            gbc.gridy = 0; contentPanel.add(createFontSettingPanel("File column:", fontFileColumn, { f -> fontFileColumn = f }), gbc)
-            gbc.gridy = 1; contentPanel.add(createFontSettingPanel("Style column:", fontStyleColumn, { f -> fontStyleColumn = f }), gbc)
-            gbc.gridy = 2; contentPanel.add(createFontSettingPanel("Ancestors column:", fontPathColumn, { f -> fontPathColumn = f }), gbc)
-            gbc.gridy = 3; contentPanel.add(createFontSettingPanel("Date Modified column:", fontDateColumn, { f -> fontDateColumn = f }), gbc)
-            gbc.gridy = 4; contentPanel.add(createFontSettingPanel("Date Created column:", fontDateCreatedColumn, { f -> fontDateCreatedColumn = f }), gbc)
-            gbc.gridy = 5; contentPanel.add(createFontSettingPanel("Icons column:", fontIconsColumn, { f -> fontIconsColumn = f }), gbc)
-            gbc.gridy = 6; contentPanel.add(createFontSettingPanel("Tags column:", fontTagsColumn, { f -> fontTagsColumn = f }), gbc)
-            gbc.gridy = 7; contentPanel.add(createFontSettingPanel("Details column:", fontDetailsColumn, { f -> fontDetailsColumn = f }), gbc)
-            gbc.gridy = 8; contentPanel.add(createFontSettingPanel("Note column:", fontNoteColumn, { f -> fontNoteColumn = f }), gbc)
-            gbc.gridy = 9; contentPanel.add(createFontSettingPanel("Node column:", fontWeightColumn, { f -> fontWeightColumn = f }), gbc)
-            gbc.gridy = 10; contentPanel.add(createFontSettingPanel("Preview Core:", fontPreviewCore, { f -> fontPreviewCore = f }), gbc)
-            gbc.gridy = 11; contentPanel.add(createFontSettingPanel("Details Preview:", fontPreviewDetails, { f -> fontPreviewDetails = f }), gbc)
-            gbc.gridy = 12; contentPanel.add(createFontSettingPanel("Note Preview:", fontPreviewNote, { f -> fontPreviewNote = f }), gbc)
-            gbc.gridy = 13; contentPanel.add(createFontSettingPanel("Breadcrumb:", fontBreadcrumb, { f -> fontBreadcrumb = f }), gbc)
-            
-            JCheckBox disableTooltipCheck = new JCheckBox("Disable tooltips on results", disableTooltips)
-            disableTooltipCheck.setToolTipText("Disable hover tooltips in result table")
-            gbc.gridy = 14; contentPanel.add(disableTooltipCheck, gbc)
-            
-            breadcrumbOnlyCheck = new JCheckBox("Show Only Breadcrumbs", showOnlyBreadcrumbs)
-            breadcrumbOnlyCheck.setToolTipText("Show floating breadcrumb panel only")
-            gbc.gridy = 15; contentPanel.add(breadcrumbOnlyCheck, gbc)
-            
-            JScrollPane scrollPane = new JScrollPane(contentPanel)
-            scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS)
-            scrollPane.getVerticalScrollBar().setUnitIncrement(16)
-            scrollPane.setBorder(BorderFactory.createEmptyBorder())
-            
-            JButton saveBtn = new JButton("Save")
-            JButton cancelBtn = new JButton("Cancel")
-            JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER))
-            btnPanel.add(saveBtn)
-            btnPanel.add(cancelBtn)
-            
-            settingsDialog.add(scrollPane, BorderLayout.CENTER)
-            settingsDialog.add(btnPanel, BorderLayout.SOUTH)
-            settingsDialog.setSize(750, 650)
-            settingsDialog.setLocationRelativeTo(UITools.getCurrentFrame())
-            
-            saveBtn.addActionListener({ e ->
-                disableTooltips = disableTooltipCheck.isSelected()
-                showOnlyBreadcrumbs = breadcrumbOnlyCheck.isSelected()
-                saveSettingsToPrefs()
-                saveFontSettings()
-                applySettings()
-                applyFontsToComponents()
-                applyBreadcrumbOnlyMode()
-                int selectedRow = resultsTable.getSelectedRow()
-                if (selectedRow != -1) showNodeDetails(selectedRow)
-                settingsDialog.dispose()
-            })
-            cancelBtn.addActionListener({ e -> settingsDialog.dispose() })
-            settingsDialog.setVisible(true)
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Show Settings Dialog ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Font Setting Panel & Save/Load methods ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private JPanel createFontSettingPanel(String labelText, Font currentFont, Closure onFontSelected) {
-            JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT))
-            panel.add(new JLabel(labelText))
-            String[] fontNames = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()
-            JComboBox<String> fontCombo = new JComboBox<>(fontNames)
-            int defaultSize = 12
-            JSpinner sizeSpinner = new JSpinner(new SpinnerNumberModel(defaultSize, 8, 48, 1))
-            if (currentFont != null) {
-                fontCombo.setSelectedItem(currentFont.getFamily())
-                sizeSpinner.setValue(currentFont.getSize())
-            } else {
-                fontCombo.setSelectedItem(UIManager.getFont("Label.font").getFamily())
-                sizeSpinner.setValue(UIManager.getFont("Label.font").getSize())
-            }
-            JLabel previewLabel = new JLabel(" Sample Text ")
-            previewLabel.setOpaque(true); previewLabel.setBackground(Color.WHITE)
-            previewLabel.setBorder(BorderFactory.createLineBorder(Color.GRAY))
-            Runnable updatePreview = {
-                String fam = fontCombo.getSelectedItem()
-                int sz = sizeSpinner.getValue()
-                Font f = new Font(fam, Font.PLAIN, sz)
-                previewLabel.setFont(f); previewLabel.repaint()
-            }
-            fontCombo.addActionListener({ updatePreview.run() })
-            sizeSpinner.addChangeListener({ updatePreview.run() })
-            updatePreview.run()
-            JButton applyBtn = new JButton("Apply")
-            applyBtn.addActionListener({
-                String fam = fontCombo.getSelectedItem()
-                int sz = sizeSpinner.getValue()
-                Font newFont = new Font(fam, Font.PLAIN, sz)
-                onFontSelected(newFont); previewLabel.setFont(newFont)
-            })
-            panel.add(fontCombo); panel.add(sizeSpinner); panel.add(applyBtn); panel.add(previewLabel)
-            return panel
-        }
-        
-        private void saveFontSettings() {
-            def rc = ResourceController.getResourceController()
-            saveFontProp(rc, "mapcrawler.fontFileColumn", fontFileColumn)
-            saveFontProp(rc, "mapcrawler.fontStyleColumn", fontStyleColumn)
-            saveFontProp(rc, "mapcrawler.fontPathColumn", fontPathColumn)
-            saveFontProp(rc, "mapcrawler.fontDateColumn", fontDateColumn)
-            saveFontProp(rc, "mapcrawler.fontDateCreatedColumn", fontDateCreatedColumn)
-            saveFontProp(rc, "mapcrawler.fontIconsColumn", fontIconsColumn)
-            saveFontProp(rc, "mapcrawler.fontTagsColumn", fontTagsColumn)
-            saveFontProp(rc, "mapcrawler.fontDetailsColumn", fontDetailsColumn)
-            saveFontProp(rc, "mapcrawler.fontNoteColumn", fontNoteColumn)
-            saveFontProp(rc, "mapcrawler.fontWeightColumn", fontWeightColumn)
-            saveFontProp(rc, "mapcrawler.fontPreviewCore", fontPreviewCore)
-            saveFontProp(rc, "mapcrawler.fontPreviewDetails", fontPreviewDetails)
-            saveFontProp(rc, "mapcrawler.fontPreviewNote", fontPreviewNote)
-            saveFontProp(rc, "mapcrawler.fontBreadcrumb", fontBreadcrumb)
-        }
-        
-        private void saveFontProp(ResourceController rc, String key, Font f) {
-            if (f != null) rc.setProperty(key, f.getFamily() + "|" + f.getStyle() + "|" + f.getSize())
-            else rc.setProperty(key, null)
-        }
-        
-        private void loadFontSettings() {
-            def rc = ResourceController.getResourceController()
-            fontFileColumn = loadFontProp(rc, "mapcrawler.fontFileColumn")
-            fontStyleColumn = loadFontProp(rc, "mapcrawler.fontStyleColumn")
-            fontPathColumn = loadFontProp(rc, "mapcrawler.fontPathColumn")
-            fontDateColumn = loadFontProp(rc, "mapcrawler.fontDateColumn")
-            fontDateCreatedColumn = loadFontProp(rc, "mapcrawler.fontDateCreatedColumn")
-            fontIconsColumn = loadFontProp(rc, "mapcrawler.fontIconsColumn")
-            fontTagsColumn = loadFontProp(rc, "mapcrawler.fontTagsColumn")
-            fontDetailsColumn = loadFontProp(rc, "mapcrawler.fontDetailsColumn")
-            fontNoteColumn = loadFontProp(rc, "mapcrawler.fontNoteColumn")
-            fontWeightColumn = loadFontProp(rc, "mapcrawler.fontWeightColumn")
-            fontPreviewCore = loadFontProp(rc, "mapcrawler.fontPreviewCore")
-            fontPreviewDetails = loadFontProp(rc, "mapcrawler.fontPreviewDetails")
-            fontPreviewNote = loadFontProp(rc, "mapcrawler.fontPreviewNote")
-            fontBreadcrumb = loadFontProp(rc, "mapcrawler.fontBreadcrumb")
-            if (fontWeightColumn == null) fontWeightColumn = new Font("Segoe UI", Font.PLAIN, 16)
-            if (fontFileColumn == null) fontFileColumn = new Font("Segoe UI", Font.PLAIN, 14)
-            if (fontStyleColumn == null) fontStyleColumn = new Font("Segoe UI", Font.PLAIN, 14)
-            if (fontPathColumn == null) fontPathColumn = new Font("Segoe UI", Font.PLAIN, 14)
-            if (fontDateColumn == null) fontDateColumn = new Font("Segoe UI", Font.PLAIN, 12)
-            if (fontDateCreatedColumn == null) fontDateCreatedColumn = new Font("Segoe UI", Font.PLAIN, 12)
-            if (fontIconsColumn == null) fontIconsColumn = new Font("Segoe UI", Font.PLAIN, 12)
-            if (fontTagsColumn == null) fontTagsColumn = new Font("Segoe UI", Font.PLAIN, 12)
-            if (fontDetailsColumn == null) fontDetailsColumn = new Font("Segoe UI", Font.PLAIN, 12)
-            if (fontNoteColumn == null) fontNoteColumn = new Font("Segoe UI", Font.PLAIN, 12)
-            if (fontPreviewCore == null) fontPreviewCore = new Font("Segoe UI", Font.PLAIN, 14)
-            if (fontPreviewDetails == null) fontPreviewDetails = new Font("Segoe UI", Font.PLAIN, 12)
-            if (fontPreviewNote == null) fontPreviewNote = new Font("Segoe UI", Font.PLAIN, 12)
-            if (fontBreadcrumb == null) fontBreadcrumb = new Font("Segoe UI", Font.PLAIN, 12)
-        }
-        
-        private Font loadFontProp(ResourceController rc, String key) {
-            String val = rc.getProperty(key)
-            if (val != null && !val.isEmpty()) {
-                def parts = val.split("\\|")
-                if (parts.length == 3) return new Font(parts[0], Integer.parseInt(parts[1]), Integer.parseInt(parts[2]))
-            }
-            return null
-        }
-        
-        private void applyFontsToComponents() {
-            if (resultsTable != null) {
-                rowHeightCache.clear()
-                resultsTable.repaint()
-            }
-            if (previewCore != null && fontPreviewCore != null)
-                previewCore.setFont(fontPreviewCore.deriveFont((float)(fontPreviewCore.getSize() + 4)))
-            if (previewDetails != null && fontPreviewDetails != null)
-                previewDetails.setFont(fontPreviewDetails)
-            if (previewNote != null && fontPreviewNote != null)
-                previewNote.setFont(fontPreviewNote)
-            if (breadcrumbPanel != null && fontBreadcrumb != null) {
-                for (Component comp : breadcrumbPanel.getComponents()) {
-                    if (comp instanceof JPanel) {
-                        for (Component inner : ((JPanel)comp).getComponents()) {
-                            if (inner instanceof JRadioButton) inner.setFont(fontBreadcrumb)
-                        }
-                    }
-                }
-                breadcrumbPanel.revalidate()
-                breadcrumbPanel.repaint()
-            }
-            updateBaseLineHeight()
-            updateAllRowHeights()
-            if (resultsTable != null) resultsTable.repaint()
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Font Setting Panel & Save/Load methods ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Filter Methods ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void applyFilter() {
-            if (filterDebouncer != null && filterDebouncer.isRunning()) {
-                filterDebouncer.stop()
-            }
-            filterDebouncer = new Timer(400, { e ->
-                actuallyApplyFilter()
-            })
-            filterDebouncer.setRepeats(false)
-            filterDebouncer.start()
-        }
-        
-        private void actuallyApplyFilter() {
-            currentFilterText = filterField.getText().trim()
-            if (currentFilterText.isEmpty()) {
-                rowSorter.setRowFilter(null)
-                filterResultLabel.setText("0 results")
-                updateResultCount()
-                return
-            }
-            String filterText = currentFilterText
-            boolean isAnd = filterText.contains(" AND ")
-            boolean isOr = filterText.contains(" OR ")
-            List<String> searchTerms
-            String operator
-            if (isAnd) {
-                searchTerms = filterText.split(" AND ").collect { it.trim().toLowerCase() }.findAll { !it.isEmpty() }
-                operator = "AND"
-            } else if (isOr) {
-                searchTerms = filterText.split(" OR ").collect { it.trim().toLowerCase() }.findAll { !it.isEmpty() }
-                operator = "OR"
-            } else {
-                searchTerms = [filterText.toLowerCase()]
-                operator = "SINGLE"
-            }
-            if (searchTerms.isEmpty()) {
-                rowSorter.setRowFilter(null)
-                filterResultLabel.setText("0 results")
-                updateResultCount()
-                return
-            }
-            if (!filterHistory.contains(currentFilterText)) {
-                filterHistory.add(0, currentFilterText)
-                if (filterHistory.size() > 20) filterHistory.remove(filterHistory.size()-1)
-                saveHistory()
-            }
-            if (operator == "AND" || operator == "OR") {
-                currentFilterText = searchTerms.join("|")
-            } else {
-                currentFilterText = searchTerms[0]
-            }
-            final List<String> finalTerms = searchTerms
-            final String finalOperator = operator
-            rowSorter.setRowFilter(new RowFilter<TableModel, Integer>() {
-                public boolean include(Entry<? extends TableModel, ? extends Integer> entry) {
-                    Object value = entry.getValue(9)
-                    Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-                    String nodeText = node?.plainText ?: ""
-                    String lowerText = nodeText.toLowerCase()
-                    if (finalOperator == "AND") {
-                        return finalTerms.every { term -> lowerText.contains(term) }
-                    } else if (finalOperator == "OR") {
-                        return finalTerms.any { term -> lowerText.contains(term) }
-                    } else {
-                        return lowerText.contains(finalTerms[0])
-                    }
-                }
-            })
-            rowHeightCache.clear()
-            resultsTable.repaint()
-            if (resultsTable.getRowCount() > 0) {
-                resultsTable.setRowSelectionInterval(0, 0)
-                showNodeDetails(0)
-            } else {
-                clearPreview()
-            }
-            int count = resultsTable.getRowCount()
-            String operatorText = (operator == "AND") ? " (AND)" : (operator == "OR") ? " (OR)" : ""
-            filterResultLabel.setText("$count result${count != 1 ? 's' : ''}$operatorText")
-            updateResultCount()
-            updateAllRowHeights()
-        }
-        
-        private void navigate(int direction) {
-            int rowCount = resultsTable.getRowCount()
-            if (rowCount == 0) return
-            int current = resultsTable.getSelectedRow()
-            if (current == -1) current = 0
-            int newRow = current + direction
-            if (newRow < 0) newRow = rowCount - 1
-            if (newRow >= rowCount) newRow = 0
-            resultsTable.setRowSelectionInterval(newRow, newRow)
-            resultsTable.scrollRectToVisible(resultsTable.getCellRect(newRow, 0, true))
-            showNodeDetails(newRow)
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Filter Methods ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Folder Selection & Settings Save/Load ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void selectFolder() {
-            JFileChooser fc = new JFileChooser()
-            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY)
-            fc.setDialogTitle("Select Folder containing .mm files")
-            if (new File(baseDir).exists()) fc.setCurrentDirectory(new File(baseDir))
-            if (fc.showOpenDialog(UITools.getCurrentFrame()) == JFileChooser.APPROVE_OPTION) {
-                baseDir = fc.getSelectedFile().absolutePath
-                folderLabel.setText(shortenPath(baseDir))
-                saveSettings()
-                tableModel.setRowCount(0)
-                clearPreview()
-                updateResultCount()
-            }
-        }
-        
-        private void saveSettings() {
-            ResourceController.getResourceController().setProperty("mapcrawler.lastUsedDir", baseDir)
-            saveSettingsToPrefs()
-        }
-        
-        private void saveSettingsToPrefs() {
-            def rc = ResourceController.getResourceController()
-            rc.setProperty("mapcrawler.disableTooltips", String.valueOf(disableTooltips))
-            rc.setProperty("mapcrawler.hideFileColumn", String.valueOf(hideFileColumn))
-            rc.setProperty("mapcrawler.hideStyleColumn", String.valueOf(hideStyleColumn))
-            rc.setProperty("mapcrawler.hidePathColumn", String.valueOf(hidePathColumn))
-            rc.setProperty("mapcrawler.hideDateColumn", String.valueOf(hideDateColumn))
-            rc.setProperty("mapcrawler.hideDateCreatedColumn", String.valueOf(hideDateCreatedColumn))
-            rc.setProperty("mapcrawler.hideIconsColumn", String.valueOf(hideIconsColumn))
-            rc.setProperty("mapcrawler.hideTagsColumn", String.valueOf(hideTagsColumn))
-            rc.setProperty("mapcrawler.hideDetailsColumn", String.valueOf(hideDetailsColumn))
-            rc.setProperty("mapcrawler.hideNoteColumn", String.valueOf(hideNoteColumn))
-            rc.setProperty("mapcrawler.hideNodeColumn", String.valueOf(hideNodeColumn))
-            rc.setProperty("mapcrawler.hideDetailsPreview", String.valueOf(hideDetailsPreview))
-            rc.setProperty("mapcrawler.hideNotePreview", String.valueOf(hideNotePreview))
-            rc.setProperty("mapcrawler.hidePreviewPanel", String.valueOf(hidePreviewPanel))
-            rc.setProperty("mapcrawler.reverseAncestorOrder", String.valueOf(reverseAncestorOrder))
-            rc.setProperty("mapcrawler.ancestorTrimLength", String.valueOf(ancestorTrimLength))
-            rc.setProperty("mapcrawler.useVisibleRootOnly", String.valueOf(useVisibleRootOnly))
-            rc.setProperty("mapcrawler.showOnlyBreadcrumbs", String.valueOf(showOnlyBreadcrumbs))
-            saveModeSettings()
-            saveTrimLength()
-            saveHistory()
-        }
-        
-        private void saveReverseOrderSetting() {
-            ResourceController.getResourceController().setProperty("mapcrawler.reverseAncestorOrder", String.valueOf(reverseAncestorOrder))
-        }
-        
-        private void saveAncestorTrimLength() {
-            ResourceController.getResourceController().setProperty("mapcrawler.ancestorTrimLength", String.valueOf(ancestorTrimLength))
-        }
-        
-        private void saveModeSettings() {
-            def rc = ResourceController.getResourceController()
-            rc.setProperty("mapcrawler.trimMode", String.valueOf(trimMode))
-            rc.setProperty("mapcrawler.singleLineMode", String.valueOf(singleLineMode))
-            rc.setProperty("mapcrawler.fullMode", String.valueOf(fullMode))
-        }
-        
-        private void saveTrimLength() {
-            ResourceController.getResourceController().setProperty("mapcrawler.trimLength", String.valueOf(trimLength))
-        }
-        
-        private void loadSettings() {
-            def rc = ResourceController.getResourceController()
-            String savedDir = rc.getProperty("mapcrawler.lastUsedDir")
-            baseDir = (savedDir != null && new File(savedDir).exists()) ? savedDir : "D:\\AJ\\OneDrive\\FP"
-            disableTooltips = "true".equals(rc.getProperty("mapcrawler.disableTooltips"))
-            hideFileColumn = "true".equals(rc.getProperty("mapcrawler.hideFileColumn"))
-            hideStyleColumn = "true".equals(rc.getProperty("mapcrawler.hideStyleColumn"))
-            hidePathColumn = "true".equals(rc.getProperty("mapcrawler.hidePathColumn"))
-            hideDateColumn = "true".equals(rc.getProperty("mapcrawler.hideDateColumn"))
-            hideDateCreatedColumn = "true".equals(rc.getProperty("mapcrawler.hideDateCreatedColumn"))
-            hideIconsColumn = "true".equals(rc.getProperty("mapcrawler.hideIconsColumn"))
-            hideTagsColumn = "true".equals(rc.getProperty("mapcrawler.hideTagsColumn"))
-            hideDetailsColumn = "true".equals(rc.getProperty("mapcrawler.hideDetailsColumn"))
-            hideNoteColumn = "true".equals(rc.getProperty("mapcrawler.hideNoteColumn"))
-            hideNodeColumn = "true".equals(rc.getProperty("mapcrawler.hideNodeColumn"))
-            hideDetailsPreview = rc.getProperty("mapcrawler.hideDetailsPreview", "false") == "true"
-            hideNotePreview = rc.getProperty("mapcrawler.hideNotePreview", "false") == "true"
-            hidePreviewPanel = "true".equals(rc.getProperty("mapcrawler.hidePreviewPanel"))
-            reverseAncestorOrder = "true".equals(rc.getProperty("mapcrawler.reverseAncestorOrder"))
-            useVisibleRootOnly = "true".equals(rc.getProperty("mapcrawler.useVisibleRootOnly", "false"))
-            String ancestorTrim = rc.getProperty("mapcrawler.ancestorTrimLength")
-            ancestorTrimLength = (ancestorTrim != null && ancestorTrim.isInteger()) ? ancestorTrim.toInteger() : 30
-            trimMode = "true".equals(rc.getProperty("mapcrawler.trimMode", "true"))
-            singleLineMode = "true".equals(rc.getProperty("mapcrawler.singleLineMode", "false"))
-            fullMode = "true".equals(rc.getProperty("mapcrawler.fullMode", "false"))
-            if (trimMode && (singleLineMode || fullMode)) { trimMode = true; singleLineMode = false; fullMode = false }
-            else if (singleLineMode && fullMode) { singleLineMode = true; fullMode = false }
-            else if (!trimMode && !singleLineMode && !fullMode) trimMode = true
-            String lenStr = rc.getProperty("mapcrawler.trimLength")
-            trimLength = (lenStr != null && lenStr.isInteger()) ? lenStr.toInteger() : 80
-            showOnlyBreadcrumbs = "true".equals(rc.getProperty("mapcrawler.showOnlyBreadcrumbs", "false"))
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Folder Selection & Settings Save/Load ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ History Management ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-        private void loadHistory() {
-            def rc = ResourceController.getResourceController()
-            String searchHist = rc.getProperty("mapcrawler.searchHistory")
-            if (searchHist) searchHistory = searchHist.split("\\|") as List
-            else searchHistory = []
-            String styleHist = rc.getProperty("mapcrawler.styleHistory")
-            if (styleHist) styleHistory = styleHist.split("\\|") as List
-            else styleHistory = []
-            String filterHist = rc.getProperty("mapcrawler.filterHistory")
-            if (filterHist) filterHistory = filterHist.split("\\|") as List
-            else filterHistory = []
-        }
-        
-        private void saveHistory() {
-            def rc = ResourceController.getResourceController()
-            rc.setProperty("mapcrawler.searchHistory", searchHistory.join("|"))
-            rc.setProperty("mapcrawler.styleHistory", styleHistory.join("|"))
-            rc.setProperty("mapcrawler.filterHistory", filterHistory.join("|"))
-        }
-        
-        private void addSearchHistory(String term) {
-            if (!term || term.isEmpty()) return
-            searchHistory.remove(term)
-            searchHistory.add(0, term)
-            if (searchHistory.size() > 20) searchHistory.remove(searchHistory.size()-1)
-            saveHistory()
-            if (searchAutoComplete != null) searchAutoComplete.updateList(searchHistory)
-        }
-        
-        private void addStyleHistory(String term) {
-            if (!term || term.isEmpty()) return
-            styleHistory.remove(term)
-            styleHistory.add(0, term)
-            if (styleHistory.size() > 20) styleHistory.remove(styleHistory.size()-1)
-            saveHistory()
-            if (styleAutoComplete != null) styleAutoComplete.updateList(styleHistory)
-        }
-        
-        private void addFilterHistory(String term) {
-            if (!term || term.isEmpty()) return
-            filterHistory.remove(term)
-            filterHistory.add(0, term)
-            if (filterHistory.size() > 20) filterHistory.remove(filterHistory.size()-1)
-            saveHistory()
-            if (filterAutoComplete != null) filterAutoComplete.updateList(filterHistory)
-        }
-        //↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ History Management ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-        
-        
-     
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    private void applySettings() {
-        if (resultsTable == null) return
-        TableColumnModel colModel = resultsTable.getColumnModel()
-        for (int i = 0; i < colModel.getColumnCount(); i++) {
-            TableColumn col = colModel.getColumn(i)
-            String header = (String) col.getHeaderValue()
-            boolean hide = false
-            int minWidth = 0
-            int defaultPref = 0
-            switch (header) {
-                case "File": hide = hideFileColumn; minWidth = 60; defaultPref = 120; break
-                case "Style": hide = hideStyleColumn; minWidth = 50; defaultPref = 80; break
-                case "Ancestors": hide = hidePathColumn; minWidth = 80; defaultPref = 200; break
-                case "Date Modified": hide = hideDateColumn; minWidth = 80; defaultPref = 100; break
-                case "Date Created": hide = hideDateCreatedColumn; minWidth = 80; defaultPref = 100; break
-                case "Icons": hide = hideIconsColumn; minWidth = 60; defaultPref = 100; break
-                case "Tags": hide = hideTagsColumn; minWidth = 50; defaultPref = 80; break
-                case "Details": hide = hideDetailsColumn; minWidth = 80; defaultPref = 150; break
-                case "Note": hide = hideNoteColumn; minWidth = 80; defaultPref = 150; break
-                case "Node": hide = hideNodeColumn; minWidth = 120; defaultPref = 350; break
-                default: continue
-            }
-            if (hide) {
-                col.setMinWidth(0)
-                col.setMaxWidth(0)
-                col.setPreferredWidth(0)
-                col.setWidth(0)
-            } else {
-                col.setMinWidth(minWidth)
-                col.setMaxWidth(Integer.MAX_VALUE)
-                Integer stored = storedColumnWidths.get(header)
-                int pref = (stored != null && stored > minWidth) ? stored : defaultPref
-                col.setPreferredWidth(pref)
-                col.setWidth(pref)
-            }
-        }
-        rowHeightCache.clear()
-        if (previewDetails != null && previewNote != null && textPanel != null) {
-            for (Component c : textPanel.getComponents()) {
-                if (c == previewDetails) c.setVisible(!hideDetailsPreview)
-                else if (c == previewNote) c.setVisible(!hideNotePreview)
-            }
-            textPanel.revalidate()
-        }
-        if (innerSplitPane != null && leftPreviewPanel != null) {
-            if (hidePreviewPanel) {
-                if (leftPreviewPanel.isVisible() && lastPreviewDividerLocation == -1)
-                    lastPreviewDividerLocation = innerSplitPane.getDividerLocation()
-                leftPreviewPanel.setVisible(false)
-                innerSplitPane.setDividerLocation(0)
-                innerSplitPane.setDividerSize(0)
-            } else {
-                leftPreviewPanel.setVisible(true)
-                innerSplitPane.setDividerSize(6)
-                if (lastPreviewDividerLocation > 0 && lastPreviewDividerLocation < innerSplitPane.getMaximumDividerLocation())
-                    innerSplitPane.setDividerLocation(lastPreviewDividerLocation)
-                else
-                    innerSplitPane.setDividerLocation(0.35)
-            }
-            innerSplitPane.revalidate()
-        }
-        resultsTable.repaint()
-    }
-
-    private String shortenPath(String path) {
-        if (path.length() <= 40) return path
-        return "..." + path.substring(path.length() - 37)
-    }
-
-    private void clearPreview() {
-        tagViewer.removeAll()
-        styleLabel.setText("")
-        previewCore.setText("")
-        previewDetails.setText("")
-        previewNote.setText("")
-        breadcrumbPanel.removeAll()
-        breadcrumbPanel.revalidate()
-        breadcrumbPanel.repaint()
-        textPanel.revalidate(); textPanel.repaint()
-        tagViewer.revalidate(); tagViewer.repaint()
-    }
-
-    private String getStyledTextContent(String rawText, Font font, Node node) {
-        if (!rawText) return ""
-        boolean isHtml = rawText.trim().startsWith("<")
-        String contentToProcess = rawText
-        if (trimMode && !isHtml) {
-            if (contentToProcess.length() > trimLength) {
-                contentToProcess = TextUtils.getShortText(contentToProcess, trimLength, "\u2026")
-            }
-        }
-        Color fgColor = getNodeForegroundColor(node)
-        String colorStyle = (fgColor != null) ? "color: rgb(${fgColor.red}, ${fgColor.green}, ${fgColor.blue});" : ""
-        String family = font.getFamily()
-        int size = font.getSize()
-        String weight = font.isBold() ? "bold" : "normal"
-        String styleFlag = font.isItalic() ? "italic" : "normal"
-        String wrapperStyle = "font-family: ${family}; font-size: ${size}pt; font-weight: ${weight}; font-style: ${styleFlag}; ${colorStyle} margin:0; padding:0; direction: rtl; text-align: right;"
-        if (isHtml) {
-            String html = contentToProcess.replaceAll("(?i)<\\/?(html|head|body)[^>]*>", "")
-            html = html.replaceAll("(?i)<style[^>]*>.*?<\\/style>", "")
-            html = html.replaceAll(/(?i)font-size\s*:\s*[^;]+;?/, "")
-            html = html.replaceAll(/(?i)font-family\s*:\s*[^;]+;?/, "")
-            html = html.replaceAll(/(?i)line-height\s*:\s*[^;]+;?/, "")
-            html = html.replaceAll(/;\s*;/, ";")
-            html = html.replaceAll(/;\s*}/, "}")
-            html = html.replaceAll(/style\s*=\s*["']\s*["']/, "")
-            html = html.replaceAll("(?i)<\\/?font[^>]*>", "")
-            html = html.replaceAll("(?i)\\s+size\\s*=\\s*[\"']?[^\"'\\s>]+[\"']?", "")
-            html = html.replaceAll("(?i)\\s+face\\s*=\\s*[\"']?[^\"'\\s>]+[\"']?", "")
-            if (html.trim().isEmpty()) html = node.getPlainText()
-            return "<div style=\"${wrapperStyle}\">${html}</div>"
-        } else {
-            String escaped = escapeHtml(contentToProcess).replace("\n", "<br>")
-            return "<div style=\"${wrapperStyle}\">${escaped}</div>"
-        }
-    }
-
-    private String getStyledCellContent(String rawText, Node node, Font font, boolean applyHighlight, int columnWidth) {
-        if (!rawText) return ""
-        boolean isHtml = rawText.trim().startsWith("<")
-        String content = rawText
-        
-        // Preview mode (columnWidth == 0): never trim
-        if (!isHtml && trimMode && !singleLineMode && !fullMode && columnWidth > 0) {
-            if (content.length() > trimLength) {
-                content = TextUtils.getShortText(content, trimLength, "\u2026")
-            }
-        }
-        
-        if (isHtml) {
-            content = content.replaceAll("(?i)<\\/?(html|head|body)[^>]*>", "")
-            content = content.replaceAll("(?i)<style[^>]*>.*?<\\/style>", "")
-            content = content.replaceAll(/(?i)font-size\s*:\s*[^;]+;?/, "")
-            content = content.replaceAll(/(?i)font-family\s*:\s*[^;]+;?/, "")
-            content = content.replaceAll(/(?i)line-height\s*:\s*[^;]+;?/, "")
-            content = content.replaceAll(/;\s*;/, ";")
-            content = content.replaceAll(/;\s*}/, "}")
-            content = content.replaceAll(/style\s*=\s*["']\s*["']/, "")
-            content = content.replaceAll("(?i)<\\/?font[^>]*>", "")
-            content = content.replaceAll("(?i)\\s+size\\s*=\\s*[\"']?[^\"'\\s>]+[\"']?", "")
-            content = content.replaceAll("(?i)\\s+face\\s*=\\s*[\"']?[^\"'\\s>]+[\"']?", "")
-            if (content.trim().isEmpty()) content = node.getPlainText()
-            if (singleLineMode) {
-                content = content.replaceAll("(?i)</?(div|p|h[1-6]|table|tr|td|ul|ol|li|br)[^>]*>", " ")
-                content = content.replaceAll("\\s+", " ")
-            }
-        } else {
-            content = escapeHtml(content).replace("\n", "<br>")
-            // Preview mode (columnWidth == 0): never trim
-            if (singleLineMode && trimMode && columnWidth > 0) {
-                if (content.length() > trimLength) {
-                    content = TextUtils.getShortText(content, trimLength, "\u2026")
-                }
-            }
-        }
-        
-        // Multi-word highlighting
-        if (applyHighlight) {
-            String highlightWord = (currentFilterText != null && !currentFilterText.isEmpty()) ? currentFilterText : lastSearchKeyword
-            if (highlightWord != null && !highlightWord.isEmpty()) {
-                List<String> wordsToHighlight = []
-                if (highlightWord.contains("|")) {
-                    wordsToHighlight = highlightWord.split("\\|").collect { it.trim() }.findAll { !it.isEmpty() }
-                } else {
-                    wordsToHighlight = [highlightWord]
-                }
-                for (String word : wordsToHighlight) {
-                    if (word.isEmpty()) continue
-                    String patternStr = Pattern.quote(word)
-                    try {
-                        int flags = matchCase ? 0 : Pattern.CASE_INSENSITIVE
-                        Pattern p = Pattern.compile("($patternStr)", flags)
-                        Matcher m = p.matcher(content)
-                        StringBuffer sb = new StringBuffer()
-                        while (m.find()) {
-                            m.appendReplacement(sb, "<span style='background-color: yellow;'>\$1</span>")
-                        }
-                        m.appendTail(sb)
-                        content = sb.toString()
-                    } catch (Exception e) {}
-                }
-            }
-        }
-        
-        Color fgColor = getNodeForegroundColor(node)
-        String colorStyle = (fgColor != null) ? "color: rgb(${fgColor.red}, ${fgColor.green}, ${fgColor.blue});" : ""
-        String family = font.getFamily()
-        int size = font.getSize()
-        String weight = font.isBold() ? "bold" : "normal"
-        String styleFlag = font.isItalic() ? "italic" : "normal"
-        String wrapperStyle = "font-family: ${family}; font-size: ${size}pt; font-weight: ${weight}; font-style: ${styleFlag}; ${colorStyle} margin:0; padding:0; direction: rtl; text-align: right;"
-        
-        // Preview mode (columnWidth == 0): use normal wrap
-        if (singleLineMode && columnWidth > 0) {
-            wrapperStyle += " white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: ${columnWidth - 10}px; unicode-bidi: plaintext;"
-        } else {
-            wrapperStyle += " white-space: normal;"
-        }
-        
-        return "<div style=\"${wrapperStyle}\">${content}</div>"
-    }
-    
-    // ========== Show Node Details ==========
-    private void actuallyShowNodeDetails(int row) {
-        int modelRow = resultsTable.convertRowIndexToModel(row)
-        Object value = tableModel.getValueAt(modelRow, 9)
-        Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-        if (node == null) { clearPreview(); return }
-        String nodeId = node.getId()
-        if (nodeId.equals(lastSelectedNodeId)) {
-            if (leftPreviewPanel != null && !leftPreviewPanel.isVisible() && !hidePreviewPanel) {
-                leftPreviewPanel.setVisible(true)
-                if (innerSplitPane != null) innerSplitPane.setDividerLocation(0.35)
-            }
-            return
-        }
-        lastSelectedNodeId = nodeId
-        if (leftPreviewPanel != null && !leftPreviewPanel.isVisible() && !hidePreviewPanel) {
-            leftPreviewPanel.setVisible(true)
-            if (innerSplitPane != null) innerSplitPane.setDividerLocation(0.35)
-        }
-        NodeModel nodeModel = getNodeModel(node)
-        String styleName = node.getStyle()?.getName()
-        if (styleName) {
-            Font previewFont = (fontPreviewCore != null) ? fontPreviewCore : new Font("Segoe UI", Font.PLAIN, 14)
-            styleLabel.setText(styleName)
-            styleLabel.setFont(previewFont.deriveFont(Font.PLAIN, previewFont.getSize()))
-            styleLabel.setForeground(Color.BLACK)
-        } else {
-            styleLabel.setText("")
-        }
-        tagViewer.removeAll()
-        def icons = iconController().getIcons(nodeModel, StyleOption.FOR_UNSELECTED_NODE)
-        def tags = iconController().getTagIcons(nodeModel)
-        icons.each { tagViewer.add(new JLabel(it.getIcon())) }
-        tags.each { tagViewer.add(new JLabel(it)) }
-        tagViewer.revalidate(); tagViewer.repaint()
-        Font useFontCore = (fontPreviewCore != null) ? fontPreviewCore : previewCore.getFont()
-        String coreRaw = node.getHtmlText() ?: node.getPlainText()
-        String styledCore = getStyledCellContent(coreRaw, node, useFontCore, true, 0)
-        previewCore.setText("<html>${styledCore}</html>")
-        Color nodeBg = getNodeBackgroundColor(node)
-        if (nodeBg != null) {
-            previewCore.setBackground(nodeBg)
-        } else {
-            previewCore.setBackground(UIManager.getColor("Panel.background"))
-        }
-        previewCore.setOpaque(true)
-        Font detailsFont = (fontPreviewDetails != null) ? fontPreviewDetails : previewDetails.getFont()
-        String detailsRaw = node.getDetails()?.getHtml() ?: node.getDetails()?.getPlain() ?: ""
-        String styledDetails = getStyledCellContent(detailsRaw, node, detailsFont, true, 0)
-        previewDetails.setText("<html>${styledDetails}</html>")
-        previewDetails.setBackground(nodeBg != null ? nodeBg : UIManager.getColor("Panel.background"))
-        previewDetails.setOpaque(true)
-        Font noteFont = (fontPreviewNote != null) ? fontPreviewNote : previewNote.getFont()
-        String noteRaw = node.getNote()?.getHtml() ?: node.getNote()?.getPlain() ?: ""
-        String styledNote = getStyledCellContent(noteRaw, node, noteFont, true, 0)
-        previewNote.setText("<html>${styledNote}</html>")
-        previewNote.setBackground(nodeBg != null ? nodeBg : UIManager.getColor("Panel.background"))
-        previewNote.setOpaque(true)
-        breadcrumbPanel.removeAll()
-        try {
-            def fullPath = node.getPathToRoot()
-            if (fullPath && !fullPath[0].isRoot()) {
-                fullPath = fullPath.reverse()
-            }
-            def displayPath = fullPath.size() > 1 ? fullPath[0..-2] : []
-            
-            // If empty path (root node), show default
-            if (displayPath.isEmpty()) {
-                JPanel tempPanel = new JPanel()
-                tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
-                tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                
-                JLabel rootLabel = new JLabel("📁 Root")
-                if (fontBreadcrumb != null) {
-                    rootLabel.setFont(fontBreadcrumb.deriveFont(Font.BOLD, fontBreadcrumb.getSize() + 2))
-                } else {
-                    rootLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
-                }
-                rootLabel.setForeground(new Color(0, 100, 200))
-                rootLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
-                tempPanel.add(rootLabel)
-                
-                breadcrumbPanel.add(tempPanel)
-                breadcrumbPanel.revalidate()
-                breadcrumbPanel.repaint()
-                breadcrumbPanel.setVisible(true)
-                return
-            }
-            
-            // Apply visible root filter
-            if (useVisibleRootOnly) {
-                def viewRoot = getActiveViewRoot()
-                if (viewRoot != null && node.mindMap == viewRoot.mindMap) {
-                    int idx = fullPath.indexOf(viewRoot)
-                    if (idx != -1) {
-                        if (idx <= displayPath.size()) {
-                            displayPath = displayPath[idx..-1]
-                        } else {
-                            displayPath = []
-                        }
-                    }
-                }
-            }
-            
-            // If still empty, show root
-            if (displayPath.isEmpty()) {
-                JPanel tempPanel = new JPanel()
-                tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
-                tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                
-                JLabel rootLabel = new JLabel("📁 Root")
-                if (fontBreadcrumb != null) {
-                    rootLabel.setFont(fontBreadcrumb.deriveFont(Font.BOLD, fontBreadcrumb.getSize() + 2))
-                } else {
-                    rootLabel.setFont(new Font("Segoe UI", Font.BOLD, 14))
-                }
-                rootLabel.setForeground(new Color(0, 100, 200))
-                rootLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5))
-                tempPanel.add(rootLabel)
-                
-                breadcrumbPanel.add(tempPanel)
-                breadcrumbPanel.revalidate()
-                breadcrumbPanel.repaint()
-                breadcrumbPanel.setVisible(true)
-                return
-            }
-            
-            // Normal breadcrumb display
-            int maxNodes = 5
-            int start = Math.max(0, displayPath.size() - maxNodes)
-            JPanel tempPanel = new JPanel()
-            tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
-            tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            if (start > 0) {
-                JLabel ellipsisLabel = new JLabel(" ... ")
-                ellipsisLabel.setFont(ellipsisLabel.getFont().deriveFont(Font.BOLD))
-                tempPanel.add(ellipsisLabel)
-            }
-            ButtonGroup bg = new ButtonGroup()
-            for (int i = start; i < displayPath.size(); i++) {
-                Node n = displayPath.get(i)
-                String nodeText = n.getPlainText()
-                String shortText = nodeText
-                if (ancestorTrimLength > 0 && nodeText.length() > ancestorTrimLength) {
-                    shortText = TextUtils.getShortText(nodeText, ancestorTrimLength, "\u2026")
-                }
-                JRadioButton btn = new JRadioButton(shortText)
-                btn.setToolTipText(nodeText)
-                if (fontBreadcrumb != null) btn.setFont(fontBreadcrumb)
-                else btn.setFont(btn.getFont().deriveFont(Font.PLAIN))
-                Color bgColor = getNodeBackgroundColor(n)
-                if (bgColor != null) {
-                    btn.setBackground(bgColor)
-                    btn.setForeground(getForegroundForBackground(bgColor))
-                    btn.setOpaque(true)
-                    btn.setContentAreaFilled(true)
-                } else {
-                    btn.setOpaque(false)
-                    btn.setForeground(UIManager.getColor("Label.foreground"))
-                }
-                Color borderColor = getBorderColorForNode(n)
-                Border leftBorder = BorderFactory.createMatteBorder(0, 5, 0, 0, borderColor)
-                Border padding = BorderFactory.createEmptyBorder(2, 6, 2, 6)
-                btn.setBorder(BorderFactory.createCompoundBorder(leftBorder, padding))
-                btn.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                btn.setHorizontalAlignment(SwingConstants.RIGHT)
-                btn.setHorizontalTextPosition(SwingConstants.LEFT)
-                btn.putClientProperty("node", n)
-                final Node target = n
-                final JRadioButton currentBtn = btn
-                btn.addActionListener({ e ->
-                    for (Component comp : tempPanel.getComponents()) {
-                        if (comp instanceof JRadioButton) {
-                            ((JRadioButton)comp).setForeground(UIManager.getColor("Label.foreground"))
-                            ((JRadioButton)comp).setFont(((JRadioButton)comp).getFont().deriveFont(Font.PLAIN))
-                            Node oldNode = (Node) ((JRadioButton)comp).getClientProperty("node")
-                            if (oldNode != null) {
-                                Color oldBg = getNodeBackgroundColor(oldNode)
-                                if (oldBg != null) {
-                                    ((JRadioButton)comp).setBackground(oldBg)
-                                    ((JRadioButton)comp).setForeground(getForegroundForBackground(oldBg))
-                                } else {
-                                    ((JRadioButton)comp).setOpaque(false)
-                                }
-                            }
-                        }
-                    }
-                    currentBtn.setForeground(Color.BLUE)
-                    currentBtn.setFont(currentBtn.getFont().deriveFont(Font.BOLD))
-                    try {
-                        ScriptUtils.c().select(target)
-                        def mapFile = target.getMindMap().getFile()
-                        if (mapFile) {
-                            def uri = mapFile.toURI().toString() + "#" + target.getId()
-                            def link = new org.freeplane.core.util.Hyperlink(new URI(uri))
-                            org.freeplane.features.url.UrlManager.getController().loadHyperlink(link)
-                            SwingUtilities.invokeLater(new Runnable() {
-                                void run() {
-                                    if (resultsTable != null && resultsTable.isShowing()) {
-                                        resultsTable.requestFocusInWindow()
-                                    }
-                                }
-                            })
-                        }
-                    } catch (Exception ex) { ex.printStackTrace() }
-                })
-                tempPanel.add(btn)
-                bg.add(btn)
-            }
-            for (Component comp : tempPanel.getComponents()) {
-                if (comp instanceof JRadioButton) {
-                    Node storedNode = (Node) ((JRadioButton)comp).getClientProperty("node")
-                    if (storedNode == node) {
-                        ((JRadioButton)comp).setSelected(true)
-                        ((JRadioButton)comp).setForeground(Color.BLUE)
-                        ((JRadioButton)comp).setFont(((JRadioButton)comp).getFont().deriveFont(Font.BOLD))
-                        break
-                    }
-                }
-            }
-            breadcrumbPanel.add(tempPanel, BorderLayout.CENTER)
-        } catch (Exception e) {
-            breadcrumbPanel.add(new JLabel(" "), BorderLayout.CENTER)
-            System.err.println("Breadcrumb error: ${e.message}")
-        }
-        breadcrumbPanel.revalidate()
-        breadcrumbPanel.repaint()
-        breadcrumbPanel.setVisible(true) // Always visible
-    }
-
-    private void showNodeDetails(int row) {
-        if (previewDebouncer != null && previewDebouncer.isRunning()) {
-            previewDebouncer.stop()
-        }
-        pendingRow = row
-        previewDebouncer = new Timer(20, { e ->
-            if (pendingRow != -1 && pendingRow < resultsTable.getRowCount()) {
-                actuallyShowNodeDetails(pendingRow)
-                pendingRow = -1
-            }
-        })
-        previewDebouncer.setRepeats(false)
-        previewDebouncer.start()
-    }
-
-    private String escapeHtml(String s) {
-        if (s == null) return ""
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    }
-
-    // ========== Search Methods ==========
-    private void doSearch() {
-        String keyword = searchField.text.trim()
-        boolean searchCore = coreCheck.selected, searchDetails = detailsCheck.selected, searchNote = noteCheck.selected
-        if (!searchCore && !searchDetails && !searchNote && !keyword.isEmpty()) {
-            JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Select at least one search option")
-            return
-        }
-        def styleNames = []
-        if (styleScopeRadio.selected) {
-            String raw = styleField.text.trim()
-            if (raw.isEmpty()) { JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Enter style name"); return }
-            styleNames = raw.split(/[;,\\.]+/).collect{ it.trim() }.findAll{ !it.isEmpty() }
-            if (styleNames.isEmpty()) { JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Enter valid style name(s)"); return }
-            raw.split(/[;,\\.]+/).each { addStyleHistory(it.trim()) }
-        }
-        tableModel.setRowCount(0)
-        clearPreview()
-        pathCache.clear()
-        rowHeightCache.clear()
-        filterField.setText("")
-        currentFilterText = ""
-        rowSorter.setRowFilter(null)
-        lastSearchKeyword = keyword
-        boolean filterVisible = !folderRadio.isSelected()
-        if (!keyword.isEmpty()) addSearchHistory(keyword)
-        if (folderRadio.isSelected()) {
-            File dir = new File(baseDir)
-            if (!dir.exists() || !dir.isDirectory()) { JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Invalid folder: $baseDir"); return }
-            def files = dir.listFiles().findAll { it.name.endsWith(".mm") }
-            if (files.isEmpty()) { JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "No .mm files found"); return }
-            def maps = []
-            files.each { file -> try { maps << ScriptUtils.c().mapLoader(file).mindMap } catch (Exception e) { println "Error loading $file.name: $e.message" } }
-            if (maps.isEmpty()) { JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "No maps to search"); return }
-            performSearchOnMaps(maps, keyword, styleNames, searchCore, searchDetails, searchNote, false)
-        } else if (openMapsRadio.isSelected()) {
-            def maps = ScriptUtils.c().openMindMaps
-            if (maps.isEmpty()) {
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "No open maps")
-                return
-            }
-            performSearchOnMaps(maps, keyword, styleNames, searchCore, searchDetails, searchNote, false)
-        } else if (selectedDescRadio.isSelected()) {
-            Node selected = ScriptUtils.c().getSelected()
-            if (selected == null) { JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "No node selected. Please select a node first."); return }
-            java.util.List<Node> nodes
-            if (filterVisible) {
-                nodes = collectVisibleNodes(selected)
-            } else {
-                nodes = [selected] + selected.findAll()
-            }
-            performSearchOnNodes(nodes, keyword, styleNames, searchCore, searchDetails, searchNote, filterVisible)
-        } else if (selectedSibRadio.isSelected()) {
-            Node selected = ScriptUtils.c().getSelected()
-            if (selected == null) { JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "No node selected. Please select a node first."); return }
-            Node parent = selected.getParent()
-            java.util.List<Node> nodes
-            if (filterVisible) {
-                nodes = (parent == null) ? [selected].findAll { it.isVisible() } : parent.getChildren().findAll { it.isVisible() }
-            } else {
-                nodes = (parent == null) ? [selected] : parent.getChildren()
-            }
-            performSearchOnNodes(nodes, keyword, styleNames, searchCore, searchDetails, searchNote, filterVisible)
-        } else if (rootRadio.isSelected()) {
-            def visibleRoot = ScriptUtils.c().viewRoot
-            if (visibleRoot == null) {
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "No visible root found.\nPlease double-click a node to set it as the view root.", "Root Search", JOptionPane.WARNING_MESSAGE)
-                return
-            }
-            java.util.List<Node> allNodes
-            if (filterVisible) {
-                allNodes = collectVisibleNodes(visibleRoot)
-            } else {
-                allNodes = [visibleRoot] + visibleRoot.findAll()
-            }
-            performSearchOnNodes(allNodes, keyword, styleNames, searchCore, searchDetails, searchNote, filterVisible)
-        }
-        updateResultCount()
-    }
-
-    private void performSearchOnMaps(def maps, String keyword, def styleNames, boolean searchCore, boolean searchDetails, boolean searchNote, boolean filterVisible) {
-        int resultCount = 0
-        for (def map : maps) {
-            try {
-                map.root.findAll().each { node ->
-                    if (filterVisible && !node.isVisible()) return
-                    if (isMatch(node, keyword, styleNames, searchCore, searchDetails, searchNote)) {
-                        resultCount++
-                        String fileName = map.file?.name ?: "Unnamed"
-                        String styleName = node.style?.name ?: "(no style)"
-                        String pathStr = getAncestorsPathCached(node)
-                        String modifiedDate = node.getLastModifiedAt() ? dateFormat.format(node.getLastModifiedAt()) : ""
-                        String createdDate = node.getCreatedAt() ? dateFormat.format(node.getCreatedAt()) : ""
-                        String detailsText = node.details?.plain ?: ""
-                        String noteText = node.note?.plain ?: ""
-                        String tagsString = getSortedTagsString(node)
-                        tableModel.addRow([ fileName, styleName, pathStr, modifiedDate, createdDate, "", tagsString, detailsText, noteText, [node] as Object[] ] as Object[])
-                        String pathKey = map.file?.absolutePath ?: "unsaved"
-                        if (!PATH_COLORS.containsKey(pathKey)) PATH_COLORS.put(pathKey, determineStringColor(pathKey))
-                    }
-                }
-            } catch (Exception e) { println "Error in map ${map.file?.name}: $e.message" }
-        }
-        if (resultCount == 0) JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "No results found")
-        else resultsTable.setRowSelectionInterval(0, 0)
-        updateAllRowHeights()
-    }
-
-    private void performSearchOnNodes(java.util.List<Node> nodes, String keyword, def styleNames, boolean searchCore, boolean searchDetails, boolean searchNote, boolean filterVisible) {
-        int resultCount = 0
-        for (Node node : nodes) {
-            if (filterVisible && !node.isVisible()) continue
-            if (isMatch(node, keyword, styleNames, searchCore, searchDetails, searchNote)) {
-                resultCount++
-                String fileName = node.mindMap.file?.name ?: "Unnamed"
-                String styleName = node.style?.name ?: "(no style)"
-                String pathStr = getAncestorsPathCached(node)
-                String modifiedDate = node.getLastModifiedAt() ? dateFormat.format(node.getLastModifiedAt()) : ""
-                String createdDate = node.getCreatedAt() ? dateFormat.format(node.getCreatedAt()) : ""
-                String detailsText = node.details?.plain ?: ""
-                String noteText = node.note?.plain ?: ""
-                String tagsString = getSortedTagsString(node)
-                tableModel.addRow([ fileName, styleName, pathStr, modifiedDate, createdDate, "", tagsString, detailsText, noteText, [node] as Object[] ] as Object[])
-                String pathKey = node.mindMap.file?.absolutePath ?: "unsaved"
-                if (!PATH_COLORS.containsKey(pathKey)) PATH_COLORS.put(pathKey, determineStringColor(pathKey))
-            }
-        }
-        if (resultCount == 0) JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "No results found in the selected scope")
-        else resultsTable.setRowSelectionInterval(0, 0)
-        updateAllRowHeights()
-    }
-
-    private String getSortedTagsString(Node node) {
-        if (node == null) return ""
-        NodeModel nodeModel = getNodeModel(node)
-        def tags = iconController().getTagIcons(nodeModel)
-        List<String> tagNames = new ArrayList<>()
-        tags.each { tag ->
-            String name = ""
-            if (tag instanceof NamedIcon) {
-                name = tag.getName() ?: tag.toString()
-            } else if (tag instanceof JLabel) {
-                name = tag.getToolTipText() ?: tag.getText() ?: ""
-            } else {
-                name = tag.toString()
-            }
-            if (name) tagNames.add(name)
-        }
-        tagNames.sort { a, b -> a.compareToIgnoreCase(b) }
-        return tagNames.join(", ")
-    }
-
-    private boolean isMatch(Node node, String keyword, def styleNames, boolean searchCore, boolean searchDetails, boolean searchNote) {
-        if (styleScopeRadio.selected && styleNames) {
-            String nodeStyle = node.style?.name
-            if (!nodeStyle || !styleNames.contains(nodeStyle)) return false
-        }
-        if (keyword == null || keyword.isEmpty()) return true
-        String kw = matchCase ? keyword : keyword.toLowerCase()
-        if (searchCore) {
-            String text = node.plainText ?: ""
-            if (!matchCase) text = text.toLowerCase()
-            if (wholeWord ? text ==~ /.*\b$kw\b.*/ : text.contains(kw)) return true
-        }
-        if (searchDetails && node.details?.plain) {
-            String text = node.details.plain
-            if (!matchCase) text = text.toLowerCase()
-            if (wholeWord ? text ==~ /.*\b$kw\b.*/ : text.contains(kw)) return true
-        }
-        if (searchNote && node.note?.plain) {
-            String text = node.note.plain
-            if (!matchCase) text = text.toLowerCase()
-            if (wholeWord ? text ==~ /.*\b$kw\b.*/ : text.contains(kw)) return true
-        }
+    return colors
+}
+
+boolean createMissingSegments(String qualifiedText, boolean evenInDefaultMode) {
+    if (!evenInDefaultMode && newTagColorMode() == "default") return false
+
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
         return false
     }
 
-    private void goToNode(int row) {
-        int modelRow = resultsTable.convertRowIndexToModel(row)
-        Object value = tableModel.getValueAt(modelRow, 9)
-        Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-        if (node != null) {
+    Map<String, String> existing = colorByQualifiedName(state)
+    List<String> path = qualifiedText.split(java.util.regex.Pattern.quote(separator())) as List<String>
+    List<String> colors = colorsForNewPath(path, existing)
+
+    String separator = separator()
+    List instructions = []
+    StringBuilder qualified = new StringBuilder()
+    for (int i = 0; i < path.size(); i++) {
+        if (i > 0) qualified.append(separator)
+        qualified.append(path.get(i))
+        if (existing.containsKey(qualified.toString())) continue
+        instructions.add(new MapTagCategoryInstruction(MapTagCategoryInstructionType.ADD_TAG,
+                new ArrayList<String>(path.subList(0, i + 1)), null, null,
+                MapTagTargetLocation.CATEGORIZED, null, colors.get(i), null))
+    }
+    if (instructions.isEmpty()) return false
+
+    try {
+        def categories = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.tagCategories
+        categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, instructions))
+        return true
+    } catch (Throwable t) {
+        showStatus("Could not create '" + qualifiedText + "': " + t.getMessage())
+        return false
+    }
+}
+
+String hexOf(Color color) {
+    return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue())
+}
+
+List<List<String>> branchPaths(def state, List<String> rootPath) {
+    List<List<String>> paths = [new ArrayList<String>(rootPath)]
+    List pending = new ArrayList(childrenAt(state, rootPath))
+    while (!pending.isEmpty()) {
+        def category = pending.remove(pending.size() - 1)
+        paths.add(new ArrayList<String>(category.path))
+        pending.addAll(category.children)
+    }
+    return paths
+}
+
+boolean hasChildrenInMap(TagRow row) {
+    if (row == null || row.synthetic || row.uncategorized || row.path == null) return false
+    try {
+        return !childrenAt(readState(), row.path).isEmpty()
+    } catch (Throwable t) {
+        return false
+    }
+}
+
+void chooseBranchColor(TagRow row) {
+    Color chosen = JColorChooser.showDialog(tagPanel,
+            "Color of '" + row.qualifiedName + "' and its sub-tags", chipColor(row))
+    if (chosen == null) return
+    applyBranchColor(row, hexOf(chosen))
+}
+
+void applyBranchColor(TagRow row, String colorSpec) {
+    if (row == null || row.path == null || colorSpec == null) return
+
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        showStatus("Could not read tags: " + t.getMessage())
+        return
+    }
+
+    List<List<String>> paths = branchPaths(state, row.path)
+    if (paths.size() <= 1) {
+        applyTagColor(row, colorSpec)
+        return
+    }
+
+    try {
+        def categories = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.tagCategories
+        List instructions = paths.collect { List<String> path ->
+            new MapTagCategoryInstruction(MapTagCategoryInstructionType.SET_COLOR, path, null, null,
+                    MapTagTargetLocation.CATEGORIZED, null, colorSpec, null)
+        }
+        categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, instructions))
+        showStatus("Colored " + paths.size() + " tags under '" + row.qualifiedName + "' — one Ctrl+Z undoes")
+        refreshTree()
+    } catch (Throwable t) {
+        showStatus("Color change failed: " + t.getMessage())
+    }
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Colour policy (#2950) ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Structure edits (the Manage-Categories role) ↓↓↓↓↓↓↓↓
+*/
+
+def runInstruction(MapTagCategoryInstructionType type, Map args) {
+    def mindMap = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap
+    def categories = mindMap.tagCategories
+    def instruction = new MapTagCategoryInstruction(type,
+            (List<String>) args.path, (String) args.newName, (List<String>) args.newParentPath,
+            (MapTagTargetLocation) args.targetLocation, (Integer) args.index,
+            (String) args.color, null)
+    categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, [instruction]))
+}
+
+void moveSelectedTag(String direction) {
+    TagRow row = selectedRow()
+    if (row == null || row.synthetic) {
+        showStatus("Select a tag first")
+        return
+    }
+    if (isSortByUsage()) {
+        showStatus("Reordering is off while sorting by usage — switch back to the tree order")
+        return
+    }
+    if (row.uncategorized) {
+        showStatus("Uncategorized tags are sorted alphabetically — no manual order")
+        return
+    }
+
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        showStatus("Could not read tags: " + t.getMessage())
+        return
+    }
+
+    List<String> path = row.path
+    List<String> parentPath = path.size() > 1 ? path.subList(0, path.size() - 1) as List<String> : []
+    List siblings = childrenAt(state, parentPath)
+    int index = siblings.findIndexOf { it.name == row.name }
+    if (index < 0) {
+        showStatus("Tag not found (changed underneath?) — refreshing")
+        scheduleRefresh()
+        return
+    }
+
+    List<String> newParentPath = null
+    Integer newIndex = null
+    switch (direction) {
+        case 'up':
+            if (index <= 0) { showStatus("Already first"); return }
+            newParentPath = parentPath; newIndex = index - 1
+            break
+        case 'down':
+            if (index >= siblings.size() - 1) { showStatus("Already last"); return }
+            newParentPath = parentPath; newIndex = index + 2
+            break
+        case 'demote':
+            if (index <= 0) { showStatus("No previous sibling to move under"); return }
+            newParentPath = new ArrayList<String>(parentPath); newParentPath.add(siblings[index - 1].name)
+            newIndex = null
+            break
+        case 'promote':
+            if (path.size() < 2) { showStatus("Already at the top level"); return }
+            List<String> grandParentPath = path.size() > 2 ? path.subList(0, path.size() - 2) as List<String> : []
+            List parentSiblings = childrenAt(state, grandParentPath)
+            int parentIndex = parentSiblings.findIndexOf { it.name == parentPath[parentPath.size() - 1] }
+            newParentPath = grandParentPath; newIndex = parentIndex + 1
+            break
+        default:
+            return
+    }
+
+    try {
+        runInstruction(MapTagCategoryInstructionType.MOVE_TAG,
+                [path: path, newParentPath: newParentPath, targetLocation: MapTagTargetLocation.CATEGORIZED,
+                 index: newIndex])
+        String newQn = (newParentPath.isEmpty() ? "" : newParentPath.join(separator()) + separator()) + row.name
+        expandedQns.addAll(newParentPath.isEmpty() ? [] : [newParentPath.join(separator())])
+        remapFavorites(row.qualifiedName, newQn)
+        showStatus("Moved '" + row.name + "' (" + direction + ") — Ctrl+Z undoes")
+        refreshTree()
+        selectRowByQn(newQn)
+    } catch (Throwable t) {
+        showStatus("Move failed: " + t.getMessage())
+    }
+}
+
+List childrenAt(def state, List<String> path) {
+    List current = state.categories
+    for (String segment : path) {
+        def next = current.find { it.name == segment }
+        if (next == null) return []
+        current = next.children
+    }
+    return current
+}
+
+void startRename() {
+    TagRow row = selectedRow()
+    if (row == null || row.synthetic) {
+        showStatus("Select a tag first")
+        return
+    }
+    renamingRow = row
+    tagTree.startEditingAtPath(tagTree.getSelectionPath())
+    renameEditorField.selectAll()
+    fitPanelBounds()
+}
+
+void commitRename() {
+    TagRow row = (TagRow) renamingRow
+    renamingRow = null
+    if (row == null) return
+    String newName = renameEditorField.getText().trim()
+    if (newName.isEmpty() || newName == row.name) return
+    if (newName.contains(separator())) {
+        showStatus("The name of one level cannot contain '" + separator() + "'")
+        return
+    }
+    try {
+        runInstruction(MapTagCategoryInstructionType.RENAME_TAG, [path: row.path, newName: newName,
+                targetLocation: row.uncategorized ? MapTagTargetLocation.UNCATEGORIZED : MapTagTargetLocation.CATEGORIZED])
+        List<String> parentPath = row.path.size() > 1 ? row.path.subList(0, row.path.size() - 1) : []
+        String newQn = (parentPath.isEmpty() ? "" : parentPath.join(separator()) + separator()) + newName
+        remapFavorites(row.qualifiedName, newQn)
+        showStatus("Renamed to '" + newName + "' — node tags follow; Ctrl+Z undoes")
+        refreshTree(true)
+        selectRowByQn(newQn)
+    } catch (Throwable t) {
+        showStatus("Rename failed: " + t.getMessage())
+        scheduleRefresh()
+    }
+}
+
+void addChildToSelected() {
+    TagRow row = selectedRow()
+    if (row == null || row.synthetic || row.uncategorized) {
+        showStatus("Select a categorized tag first")
+        return
+    }
+    addChildTag(row)
+}
+
+void addChildTag(TagRow parentRow) {
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        showStatus("Could not read tags: " + t.getMessage())
+        return
+    }
+    List existing = childrenAt(state, parentRow.path)
+    String base = "new tag"
+    String name = base
+    int suffix = 2
+    while (existing.any { it.name == name }) {
+        name = base + " " + suffix
+        suffix++
+    }
+    List<String> newPath = new ArrayList<String>(parentRow.path)
+    newPath.add(name)
+    String newColor = colorsForNewPath(newPath, colorByQualifiedName(state)).last()
+    try {
+        runInstruction(MapTagCategoryInstructionType.ADD_TAG,
+                [path: newPath, targetLocation: MapTagTargetLocation.CATEGORIZED, color: newColor])
+        expandedQns.add(parentRow.qualifiedName)
+        refreshTree()
+        String newQn = parentRow.qualifiedName + separator() + name
+        selectRowByQn(newQn)
+        showStatus("Added '" + name + "' — type the name")
+        startRename()
+    } catch (Throwable t) {
+        showStatus("Add failed: " + t.getMessage())
+    }
+}
+
+void deleteTagNow(TagRow row) {
+    if (row == null || row.synthetic) return
+    armedDeleteQn = null
+    try {
+        runInstruction(MapTagCategoryInstructionType.DELETE_TAG, [path: row.path,
+                targetLocation: row.uncategorized ? MapTagTargetLocation.UNCATEGORIZED : MapTagTargetLocation.CATEGORIZED])
+        remapFavorites(row.qualifiedName, null)
+        showStatus("Deleted '" + row.qualifiedName + "' — Ctrl+Z undoes")
+        refreshTree()
+    } catch (Throwable t) {
+        showStatus("Delete failed: " + t.getMessage())
+    }
+}
+
+void deleteSelectedTag() {
+    TagRow row = selectedRow()
+    if (row == null || row.synthetic) return
+
+    long now = System.currentTimeMillis()
+    if (row.qualifiedName.equals(armedDeleteQn) && now - armedDeleteAt < deleteArmMs) {
+        deleteTagNow(row)
+        return
+    }
+    armedDeleteQn = row.qualifiedName
+    armedDeleteAt = now
+    tagTree.repaint()
+    showStatus("Press Delete again to delete '" + row.qualifiedName + "' (and its subtags) from the map")
+}
+
+void chooseTagColor(TagRow row) {
+    Color initial = chipColor(row)
+    Color chosen = JColorChooser.showDialog(tagPanel, "Color of '" + row.qualifiedName + "'", initial)
+    if (chosen == null) return
+    applyTagColor(row, String.format("#%02x%02x%02x", chosen.getRed(), chosen.getGreen(), chosen.getBlue()))
+}
+
+void applyTagColor(TagRow row, String colorSpec) {
+    try {
+        runInstruction(MapTagCategoryInstructionType.SET_COLOR, [path: row.path, color: colorSpec,
+                targetLocation: row.uncategorized ? MapTagTargetLocation.UNCATEGORIZED : MapTagTargetLocation.CATEGORIZED])
+        showStatus((colorSpec == "none" ? "Color reset for '" : "Color set for '") + row.qualifiedName + "'")
+        refreshTree()
+    } catch (Throwable t) {
+        showStatus("Color change failed: " + t.getMessage())
+    }
+}
+
+
+void moveToUncategorized(TagRow row) {
+    try {
+        runInstruction(MapTagCategoryInstructionType.MOVE_TAG,
+                [path: row.path, targetLocation: MapTagTargetLocation.UNCATEGORIZED])
+        showStatus("Moved '" + row.qualifiedName + "' to uncategorized — Ctrl+Z undoes")
+        refreshTree()
+    } catch (Throwable t) {
+        showStatus("Move failed: " + t.getMessage())
+    }
+}
+
+void categorizeAtTopLevel(TagRow row) {
+    try {
+        runInstruction(MapTagCategoryInstructionType.MOVE_TAG,
+                [path: row.path, newParentPath: [], targetLocation: MapTagTargetLocation.CATEGORIZED])
+        showStatus("Moved '" + row.qualifiedName + "' to the top level — Ctrl+Z undoes")
+        refreshTree()
+        selectRowByQn(row.name)
+    } catch (Throwable t) {
+        showStatus("Move failed: " + t.getMessage())
+    }
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Structure edits (the Manage-Categories role) ↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Drag & drop (always enabled) ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+TransferHandler createTreeDndHandler() {
+    return new TransferHandler() {
+        @Override
+        int getSourceActions(JComponent component) {
+            // Drag & drop is always available - no edit mode needed
+            return TransferHandler.MOVE
+        }
+
+        @Override
+        Transferable createTransferable(JComponent component) {
+            TagRow row = selectedRow()
+            if (row == null || row.synthetic) return null
+            draggedRow = row
+            return new Transferable() {
+                @Override
+                DataFlavor[] getTransferDataFlavors() { return [tagDndFlavor] as DataFlavor[] }
+
+                @Override
+                boolean isDataFlavorSupported(DataFlavor flavor) { return flavor.equals(tagDndFlavor) }
+
+                @Override
+                Object getTransferData(DataFlavor flavor) {
+                    if (!flavor.equals(tagDndFlavor)) throw new UnsupportedFlavorException(flavor)
+                    return row.qualifiedName
+                }
+            }
+        }
+
+        @Override
+        boolean canImport(TransferHandler.TransferSupport support) {
+            if (draggedRow == null) return false
+            if (!support.isDataFlavorSupported(tagDndFlavor)) return false
+            return dropPlanFrom(support) != null
+        }
+
+        @Override
+        boolean importData(TransferHandler.TransferSupport support) {
+            Map plan = dropPlanFrom(support)
+            if (plan == null) return false
+            SwingUtilities.invokeLater { performDropMove(plan) }
+            return true
+        }
+
+        @Override
+        void exportDone(JComponent source, Transferable data, int action) {
+            draggedRow = null
+        }
+    }
+}
+
+Map dropPlanFrom(TransferHandler.TransferSupport support) {
+    if (!support.isDrop()) return null
+    JTree.DropLocation location = (JTree.DropLocation) support.getDropLocation()
+    TreePath path = location.getPath()
+    if (path == null) return null
+    TagRow pathRow = rowOf(path)
+    TagRow parent = (pathRow == null || (pathRow.synthetic && pathRow.name == "tags")) ? null : pathRow
+    int childIndex = location.getChildIndex()
+    return planDropMove((TagRow) draggedRow, parent, childIndex < 0 ? null : childIndex)
+}
+
+Map planDropMove(TagRow dragged, TagRow parentRow, Integer childIndex) {
+    if (dragged == null || dragged.synthetic) return null
+    if (!filterText.isEmpty()) return null
+    if (isSortByUsage()) return null
+    String sep = separator()
+
+    boolean toUncategorized = parentRow != null &&
+            (parentRow.uncategorized || (parentRow.synthetic && parentRow.name == "uncategorized"))
+    if (toUncategorized) {
+        if (dragged.uncategorized) return null
+        DefaultMutableTreeNode draggedNode = findNodeByQn(treeRootNode, dragged.qualifiedName)
+        if (draggedNode != null && draggedNode.getChildCount() > 0) return null
+        return [path: dragged.path, newParentPath: null, targetLocation: MapTagTargetLocation.UNCATEGORIZED,
+                index: null, newQn: dragged.name, expandQn: null]
+    }
+
+    if (parentRow != null && parentRow.synthetic) return null
+    List<String> parentPath = parentRow == null ? [] : parentRow.path
+    String parentQn = parentRow?.qualifiedName
+    if (parentQn != null && !dragged.uncategorized) {
+        if (parentQn == dragged.qualifiedName) return null
+        if (parentQn.startsWith(dragged.qualifiedName + sep)) return null
+    }
+
+    String oldParentQn = dragged.uncategorized ? "::uncategorized::"
+            : (dragged.path.size() > 1 ? dragged.path.subList(0, dragged.path.size() - 1).join(sep) : null)
+    boolean sameParent = !dragged.uncategorized && oldParentQn == parentQn
+    if (sameParent) {
+        if (childIndex == null) return null
+        DefaultMutableTreeNode parentNode = parentRow == null ? treeRootNode : findNodeByQn(treeRootNode, parentQn)
+        int oldIndex = indexAmongTagChildren(parentNode, dragged.qualifiedName)
+        if (oldIndex >= 0 && (childIndex == oldIndex || childIndex == oldIndex + 1)) return null
+    }
+
+    Integer index = childIndex
+    if (index != null) {
+        DefaultMutableTreeNode parentNode = parentRow == null ? treeRootNode : findNodeByQn(treeRootNode, parentQn)
+        index = Math.max(0, Math.min(index, tagChildCount(parentNode)))
+    }
+
+    String newQn = (parentPath.isEmpty() ? "" : parentPath.join(sep) + sep) + dragged.name
+    return [path: dragged.path, newParentPath: parentPath, targetLocation: MapTagTargetLocation.CATEGORIZED,
+            index: index, newQn: newQn, expandQn: parentQn]
+}
+
+String performDropMove(Map plan) {
+    String oldQn = ((List<String>) plan.path).join(separator())
+    try {
+        runInstruction(MapTagCategoryInstructionType.MOVE_TAG,
+                [path: plan.path, newParentPath: plan.newParentPath,
+                 targetLocation: plan.targetLocation, index: plan.index])
+        if (plan.expandQn != null) expandedQns.add((String) plan.expandQn)
+        remapFavorites(oldQn, (String) plan.newQn)
+        String message = "Moved '" + plan.newQn + "' — Ctrl+Z undoes"
+        showStatus(message)
+        refreshTree()
+        selectRowByQn((String) plan.newQn)
+        return message
+    } catch (Throwable t) {
+        String message = "Move failed: " + t.getMessage()
+        showStatus(message)
+        return message
+    }
+}
+
+void remeasureRows(Collection<String> qualifiedNames) {
+    if (qualifiedNames.isEmpty() || tagTree == null) return
+    DefaultTreeModel model = (DefaultTreeModel) tagTree.getModel()
+    qualifiedNames.each { String qn ->
+        DefaultMutableTreeNode node = findNodeByQn(treeRootNode, qn)
+        if (node != null) model.nodeChanged(node)
+    }
+}
+
+TagRow rowByQn(String qn) {
+    DefaultMutableTreeNode node = findNodeByQn(treeRootNode, qn)
+    return node == null ? null : (TagRow) node.getUserObject()
+}
+
+TagRow uncategorizedHeaderRow() {
+    for (int i = 0; i < treeRootNode.getChildCount(); i++) {
+        TagRow row = (TagRow) ((DefaultMutableTreeNode) treeRootNode.getChildAt(i)).getUserObject()
+        if (row.synthetic && row.name == "uncategorized") return row
+    }
+    return null
+}
+
+int tagChildCount(DefaultMutableTreeNode parentNode) {
+    if (parentNode == null) return 0
+    int count = 0
+    for (int i = 0; i < parentNode.getChildCount(); i++) {
+        TagRow row = (TagRow) ((DefaultMutableTreeNode) parentNode.getChildAt(i)).getUserObject()
+        if (!row.synthetic) count++
+    }
+    return count
+}
+
+int indexAmongTagChildren(DefaultMutableTreeNode parentNode, String qn) {
+    if (parentNode == null) return -1
+    int index = 0
+    for (int i = 0; i < parentNode.getChildCount(); i++) {
+        TagRow row = (TagRow) ((DefaultMutableTreeNode) parentNode.getChildAt(i)).getUserObject()
+        if (row.synthetic) continue
+        if (qn.equals(row.qualifiedName)) return index
+        index++
+    }
+    return -1
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Drag & drop (always enabled) ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Context menu ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+void showContextMenu(MouseEvent e) {
+    TreePath path = tagTree.getPathForLocation(e.getX(), e.getY())
+    if (path == null) return
+    tagTree.setSelectionPath(path)
+    TagRow row = rowOf(path)
+    if (row == null || row.synthetic) return
+
+    JPopupMenu menu = new JPopupMenu()
+    menu.add(menuItem("Assign to selected node(s)", { assignTagToSelection(row) }))
+    menu.add(menuItem("Remove from selected node(s)", { removeTagFromSelection(row) }))
+    menu.addSeparator()
+    menu.add(isFavorite(row.qualifiedName)
+            ? menuItem("Remove from favorites", { removeFavorite(row.qualifiedName) })
+            : menuItem("Add to favorites  " + favoriteSymbol, { addFavorite(row.qualifiedName) }))
+    menu.addSeparator()
+    menu.add(menuItem("Rename  (F2)", { startRename() }))
+    if (!row.uncategorized) {
+        menu.add(menuItem("Add child tag  (Insert)", { addChildTag(row) }))
+       
+        menu.add(menuItem("⚡ Add Child Tag (Fast)", { 
+         
+                selectRowByQn(row.qualifiedName)
+            
+                openFastChildPanel()
+        }))
+    }
+    menu.add(menuItem("Delete", { deleteTagNow(row) }))
+    menu.addSeparator()
+    
+    // ===== فقط یک آیتم برای Merge/Assign =====
+    menu.add(menuItem("🔀 Merge / Assign", { 
+        openMergePanel()
+    }))
+
+    // ===== اضافه کردن گزینه Locate =====
+    menu.add(menuItem("📍 Locate Tag", { 
+        installClickLocator()
+    }))
+    
+    menu.addSeparator()
+    menu.add(menuItem("Set color…", { chooseTagColor(row) }))
+    menu.add(menuItem("Reset color to default", { applyTagColor(row, "none") }))
+    if (hasChildrenInMap(row)) {
+        menu.add(menuItem("Set color for this and all sub-tags…", { chooseBranchColor(row) }))
+        menu.add(menuItem("Recolor sub-tags to match this category",
+                { applyBranchColor(row, row.colorHex) }))
+    }
+    if (!row.uncategorized) {
+        menu.addSeparator()
+        menu.add(menuItem("Move up  (Alt+↑)", { moveSelectedTag('up') }))
+        menu.add(menuItem("Move down  (Alt+↓)", { moveSelectedTag('down') }))
+        menu.add(menuItem("Promote  (Alt+←)", { moveSelectedTag('promote') }))
+        menu.add(menuItem("Demote  (Alt+→)", { moveSelectedTag('demote') }))
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent()
+        if (node.getChildCount() == 0) {
+            menu.add(menuItem("Move to uncategorized", { moveToUncategorized(row) }))
+        }
+    } else {
+        menu.addSeparator()
+        menu.add(menuItem("Categorize at the top level", { categorizeAtTopLevel(row) }))
+    }
+    menu.addSeparator()
+    menu.add(menuItem("Filter map by this tag", { filterMapByTag(row) }))
+    if (mapFilterActive) {
+        menu.add(menuItem("Clear the map filter", { clearMapFilter(true) }))
+    }
+    addUsageMenuItems(menu)
+    addPanelOptionItems(menu)
+
+    attachPopupGuard(menu)
+    menu.show(tagTree, e.getX(), e.getY())
+}
+
+void attachPopupGuard(JPopupMenu menu) {
+    menu.addPopupMenuListener([
+            popupMenuWillBecomeVisible  : { PopupMenuEvent ev -> popupOpen = true },
+            popupMenuWillBecomeInvisible: { PopupMenuEvent ev -> popupOpen = false; retractTimer.restart() },
+            popupMenuCanceled           : { PopupMenuEvent ev -> popupOpen = false }
+    ] as PopupMenuListener)
+}
+
+void addPanelOptionItems(JPopupMenu menu) {
+    menu.addSeparator()
+    JCheckBoxMenuItem closeItem = new JCheckBoxMenuItem("Close after insert", isCloseAfterInsert())
+    closeItem.setToolTipText("Hide the panel as soon as a tag is assigned — trigger, type, Enter, back to the map")
+    closeItem.addActionListener({ ActionEvent e ->
+        applyCloseAfterInsert(closeItem.isSelected())
+    } as ActionListener)
+    menu.add(closeItem)
+    menu.add(menuItem("Options…", { showOptionsDialog() }))
+}
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Options dialog ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+void showOptionsDialog() {
+    Object opened = boundScrollPane.getClientProperty(OPTIONS_DIALOG_KEY)
+    if (opened instanceof JDialog && ((JDialog) opened).isDisplayable()) {
+        ((JDialog) opened).toFront()
+        return
+    }
+
+    JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(tagPanel),
+            "Tag panel options", Dialog.ModalityType.MODELESS)
+    dialog.setName(OPTIONS_DIALOG_KEY)
+
+    JPanel content = new JPanel()
+    content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS))
+    content.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12))
+
+    JLabel parentPreview = previewChip("parent")
+    JLabel childPreview = previewChip("child")
+    JButton colorButton = new JButton("      ")
+    colorButton.setName("UnifiedTagPanelColorButton")
+
+    JRadioButton defaultMode = new JRadioButton("Freeplane default (color from the name)")
+    JRadioButton inheritMode = new JRadioButton("Inherit from the parent category")
+    JRadioButton fixedMode = new JRadioButton("Fixed color")
+    defaultMode.setName("UnifiedTagPanelModeDefault")
+    inheritMode.setName("UnifiedTagPanelModeInherit")
+    fixedMode.setName("UnifiedTagPanelModeFixed")
+    ButtonGroup modes = new ButtonGroup()
+    [defaultMode, inheritMode, fixedMode].each { modes.add(it) }
+
+    Closure refreshOptionWidgets = { ->
+        String mode = newTagColorMode()
+        defaultMode.setSelected(mode == "default")
+        inheritMode.setSelected(mode == "inherit")
+        fixedMode.setSelected(mode == "fixed")
+        colorButton.setEnabled(mode != "default")
+        Color fixed = parseTagColor(chosenFixedColor() ?: newTagColorFallback, "")
+        colorButton.setBackground(fixed)
+        colorButton.setOpaque(true)
+        colorButton.setBorderPainted(false)
+        applyPreviewChips(parentPreview, childPreview)
+    }
+
+    Closure chooseMode = { String mode ->
+        try {
+            ResourceController.getResourceController().setProperty(NEW_TAG_COLOR_MODE_KEY, mode)
+        } catch (Throwable t) {
+            showStatus("Could not save the option: " + t.getMessage())
+        }
+        refreshOptionWidgets.call()
+    }
+    defaultMode.addActionListener({ ActionEvent e -> chooseMode.call("default") } as ActionListener)
+    inheritMode.addActionListener({ ActionEvent e -> chooseMode.call("inherit") } as ActionListener)
+    fixedMode.addActionListener({ ActionEvent e -> chooseMode.call("fixed") } as ActionListener)
+
+    colorButton.addActionListener({ ActionEvent e ->
+        Color chosen = JColorChooser.showDialog(dialog, "Color of new tags",
+                parseTagColor(chosenFixedColor() ?: newTagColorFallback, ""))
+        if (chosen == null) return
+        try {
+            ResourceController.getResourceController().setProperty(NEW_TAG_COLOR_KEY, hexOf(chosen))
+        } catch (Throwable t) {
+            showStatus("Could not save the color: " + t.getMessage())
+        }
+        refreshOptionWidgets.call()
+    } as ActionListener)
+
+    content.add(sectionLabel("New tags"))
+    [defaultMode, inheritMode].each { content.add(leftAligned(it)) }
+    JPanel fixedRow = transparentPanel(new FlowLayout(FlowLayout.LEFT, 6, 0))
+    fixedRow.setOpaque(false)
+    fixedRow.add(fixedMode)
+    fixedRow.add(colorButton)
+    content.add(leftAligned(fixedRow))
+    JPanel previewRow = transparentPanel(new FlowLayout(FlowLayout.LEFT, 6, 0))
+    previewRow.add(new JLabel("Preview:"))
+    previewRow.add(parentPreview)
+    previewRow.add(childPreview)
+    content.add(leftAligned(previewRow))
+
+    content.add(Box.createVerticalStrut(10))
+    content.add(sectionLabel("Behaviour"))
+
+    JCheckBox closeAfterInsertBox = new JCheckBox("Close after insert", isCloseAfterInsert())
+    closeAfterInsertBox.setName("UnifiedTagPanelCloseAfterInsertBox")
+    closeAfterInsertBox.addActionListener({ ActionEvent e ->
+        applyCloseAfterInsert(closeAfterInsertBox.isSelected())
+    } as ActionListener)
+    content.add(leftAligned(closeAfterInsertBox))
+
+    JCheckBox followTabsBox = new JCheckBox("Show on every tab", isFollowTabs())
+    followTabsBox.setName("UnifiedTagPanelFollowTabsBox")
+    followTabsBox.setToolTipText("The panel moves to whatever tab you switch to, instead of staying on the one it was opened in")
+    followTabsBox.addActionListener({ ActionEvent e ->
+        applyFollowTabs(followTabsBox.isSelected())
+    } as ActionListener)
+    content.add(leftAligned(followTabsBox))
+
+    JCheckBox usageCountsBox = new JCheckBox("Show usage counts", showUsageCounts)
+    usageCountsBox.setName("UnifiedTagPanelUsageCountsBox")
+    usageCountsBox.addActionListener({ ActionEvent e ->
+        showUsageCounts = usageCountsBox.isSelected()
+        try {
+            ResourceController.getResourceController().setProperty(SHOW_USAGE_COUNTS_KEY, showUsageCounts)
+        } catch (Throwable t) {
+            showStatus("Could not save the option: " + t.getMessage())
+        }
+        refreshTree()
+    } as ActionListener)
+    content.add(leftAligned(usageCountsBox))
+
+    content.add(Box.createVerticalStrut(10))
+    JLabel footnote = new JLabel("<html><i>Colors apply to tags created in this panel.<br>"
+            + "Tags made elsewhere in Freeplane keep its own default.</i></html>")
+    footnote.setFont(footnote.getFont().deriveFont((float) (panelTextFontSize - 3)))
+    content.add(leftAligned(footnote))
+
+    JButton closeButton = new JButton("Close")
+    closeButton.addActionListener({ ActionEvent e -> dialog.dispose() } as ActionListener)
+    JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0))
+    buttonRow.add(closeButton)
+    content.add(Box.createVerticalStrut(6))
+    content.add(leftAligned(buttonRow))
+
+    refreshOptionWidgets.call()
+
+    dialog.getContentPane().add(content)
+    dialog.pack()
+    dialog.setLocationRelativeTo(tagPanel)
+    dialog.addWindowListener(new WindowAdapter() {
+        @Override
+        void windowClosed(WindowEvent e) {
+            boundScrollPane.putClientProperty(OPTIONS_DIALOG_KEY, null)
+            refreshTree()
+        }
+    })
+    boundScrollPane.putClientProperty(OPTIONS_DIALOG_KEY, dialog)
+    dialog.setVisible(true)
+}
+
+// ============================================================
+// Fast Child Panel (Add Child - Fast version)
+// ============================================================
+
+String getSelectedTagFromTree() {
+    try {
+        TreePath path = tagTree.getSelectionPath()
+        if (path == null) return null
+        
+        def treeNode = path.lastPathComponent
+        if (!(treeNode instanceof javax.swing.tree.DefaultMutableTreeNode)) return null
+        
+        def userObject = treeNode.userObject
+        if (!(userObject instanceof TagRow)) return null
+        
+        return ((TagRow) userObject).qualifiedName
+    } catch (Exception e) {
+        return null
+    }
+}
+
+void selectFastParentTag() {
+    try {
+        if (!fastChildPanelOpen || fastChildPanel == null || !fastChildPanel.isVisible()) return
+        
+        TreePath path = tagTree.getSelectionPath()
+        if (path == null) return
+        
+        def treeNode = path.lastPathComponent
+        if (!(treeNode instanceof javax.swing.tree.DefaultMutableTreeNode)) return
+        
+        def userObject = treeNode.userObject
+        if (!(userObject instanceof TagRow)) return
+        
+        String fullPath = ((TagRow) userObject).qualifiedName
+        if (fullPath == null) return
+        
+        SwingUtilities.invokeLater({
+            fastParentField.setText(fullPath)
+            fastParentField.setForeground(new Color(0, 120, 0))
+            fastWaitingForParent = false
+            fastStatusLabel.setText("✅ Parent selected: ${fullPath}")
+            fastStatusLabel.setForeground(new Color(0, 120, 0))
+            fastAddButton.setEnabled(true)
+            fastChildNameField.requestFocusInWindow()
+        })
+        
+    } catch (Exception e) {
+        e.printStackTrace()
+        fastWaitingForParent = false
+    }
+}
+
+// Function to select tag from tree for Merge
+void selectTagFromTree() {
+    try {
+        if (!isMergePanelOpen || mergePanel == null || !mergePanel.isVisible()) return
+        
+        TreePath path = tagTree.getSelectionPath()
+        if (path == null) return
+        
+        def treeNode = path.lastPathComponent
+        if (!(treeNode instanceof javax.swing.tree.DefaultMutableTreeNode)) return
+        
+        def userObject = treeNode.userObject
+        if (!(userObject instanceof TagRow)) return
+        
+        String fullPath = ((TagRow) userObject).qualifiedName
+        if (fullPath == null) return
+        
+        SwingUtilities.invokeLater({
+            if (selectionStep == 1) {
+                sourceField.setText(fullPath)
+                sourceField.setForeground(new Color(0, 120, 0))
+                selectionStep = 2
+                statusLabel.setText("✅ Source: ${fullPath} | Now click on TARGET tag in tree")
+                statusLabel.setForeground(new Color(0, 120, 0))
+                mergeButton.setEnabled(false)
+            } else if (selectionStep == 2) {
+                String source = sourceField.getText()
+                if (source == fullPath) {
+                    statusLabel.setText("⚠️ Cannot use same tag as source and target")
+                    statusLabel.setForeground(new Color(200, 100, 0))
+                    return
+                }
+                targetField.setText(fullPath)
+                targetField.setForeground(new Color(0, 120, 0))
+                selectionStep = 1
+                statusLabel.setText("✅ Source: ${source} | Target: ${fullPath} | Click MERGE")
+                statusLabel.setForeground(new Color(0, 150, 0))
+                mergeButton.setEnabled(true)
+            }
+        })
+        
+    } catch (Exception e) {
+        e.printStackTrace()
+    }
+}
+
+void openFastChildPanel() {
+    try {
+        def mindmapNode = Controller.currentController.getSelection().getSelected()
+        if (mindmapNode == null) {
+            JOptionPane.showMessageDialog(tagPanel,
+                "Please select a node in the mindmap first.",
+                "Add Child Tag (Fast)",
+                JOptionPane.INFORMATION_MESSAGE)
+            return
+        }
+        
+        if (fastChildPanel != null && fastChildPanel.isVisible()) {
+            fastChildPanel.toFront()
+            return
+        }
+        
+        fastChildPanelOpen = true
+        fastWaitingForParent = false
+        
+        fastChildPanel = new JDialog(SwingUtilities.getWindowAncestor(tagPanel), "⚡ Add Child Tag (Fast)", false)
+        fastChildPanel.setLayout(new BorderLayout(10, 10))
+        fastChildPanel.setSize(550, 250)
+        fastChildPanel.setLocationRelativeTo(tagPanel)
+        fastChildPanel.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE)
+        
+        JPanel mainPanel = new JPanel(new GridBagLayout())
+        GridBagConstraints gbc = new GridBagConstraints()
+        gbc.insets = new Insets(8, 15, 8, 15)
+        gbc.fill = GridBagConstraints.HORIZONTAL
+        
+        gbc.gridx = 0
+        gbc.gridy = 0
+        gbc.gridwidth = 2
+        JLabel helpLabel = new JLabel("💡 Click on a tag in the tree to select as PARENT")
+        helpLabel.setFont(new Font(panelTextFontName, Font.BOLD, 13))
+        helpLabel.setForeground(new Color(0, 100, 0))
+        mainPanel.add(helpLabel, gbc)
+        
+        gbc.gridwidth = 1
+        gbc.gridy = 1
+        gbc.gridx = 0
+        JLabel parentLabel = new JLabel("📁 Parent:")
+        parentLabel.setFont(new Font(panelTextFontName, Font.BOLD, 13))
+        mainPanel.add(parentLabel, gbc)
+        
+        gbc.gridx = 1
+        gbc.gridwidth = 1
+        fastParentField = new JTextField()
+        fastParentField.setFont(new Font(panelTextFontName, Font.PLAIN, 13))
+        fastParentField.setPreferredSize(new Dimension(350, 30))
+        fastParentField.setEditable(false)
+        fastParentField.setBackground(new Color(245, 245, 245))
+        fastParentField.setForeground(new Color(100, 100, 100))
+        fastParentField.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(200, 200, 200), 1),
+            BorderFactory.createEmptyBorder(3, 8, 3, 8)
+        ))
+        fastParentField.setToolTipText("Click on a tag in the tree to fill this field")
+        mainPanel.add(fastParentField, gbc)
+        
+        gbc.gridy = 2
+        gbc.gridx = 0
+        gbc.gridwidth = 1
+        JLabel childLabel = new JLabel("✏️ Child Name:")
+        childLabel.setFont(new Font(panelTextFontName, Font.BOLD, 13))
+        mainPanel.add(childLabel, gbc)
+        
+        gbc.gridx = 1
+        fastChildNameField = new JTextField()
+        fastChildNameField.setFont(new Font(panelTextFontName, Font.PLAIN, 13))
+        fastChildNameField.setPreferredSize(new Dimension(350, 30))
+        fastChildNameField.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(200, 200, 200), 1),
+            BorderFactory.createEmptyBorder(3, 8, 3, 8)
+        ))
+        fastChildNameField.setToolTipText("Enter the name for the child tag")
+        fastChildNameField.addActionListener({ ActionEvent e ->
+            if (fastAddButton.isEnabled()) {
+                performFastAddChild()
+            }
+        } as ActionListener)
+        mainPanel.add(fastChildNameField, gbc)
+        
+        gbc.gridy = 3
+        gbc.gridx = 0
+        gbc.gridwidth = 2
+        fastStatusLabel = new JLabel(" 🔵 Click on a tag in the tree to select as PARENT")
+        fastStatusLabel.setFont(new Font(panelTextFontName, Font.BOLD, 12))
+        fastStatusLabel.setForeground(new Color(0, 0, 150))
+        fastStatusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5))
+        mainPanel.add(fastStatusLabel, gbc)
+        
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 5))
+        
+        fastAddButton = new JButton("⚡ Add & Remove")
+        fastAddButton.setFont(new Font(panelTextFontName, Font.BOLD, 14))
+        fastAddButton.setBackground(new Color(255, 200, 100))
+        fastAddButton.setForeground(new Color(150, 80, 0))
+        fastAddButton.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(200, 120, 0), 2),
+            BorderFactory.createEmptyBorder(8, 25, 8, 25)
+        ))
+        fastAddButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+        fastAddButton.setEnabled(false)
+        fastAddButton.setToolTipText("Add child tag (auto-removes after 2s)")
+        fastAddButton.addActionListener({ ActionEvent e ->
+            performFastAddChild()
+        } as ActionListener)
+        buttonPanel.add(fastAddButton)
+        
+        JButton resetButton = new JButton("↺ Reset")
+        resetButton.setFont(new Font(panelTextFontName, Font.PLAIN, 13))
+        resetButton.addActionListener({ ActionEvent e ->
+            fastParentField.setText("")
+            fastParentField.setForeground(new Color(100, 100, 100))
+            fastChildNameField.setText("")
+            fastWaitingForParent = true
+            fastStatusLabel.setText(" 🔵 Click on a tag in the tree to select as PARENT")
+            fastStatusLabel.setForeground(new Color(0, 0, 150))
+            fastAddButton.setEnabled(false)
+            String currentTag = getSelectedTagFromTree()
+            if (currentTag != null) {
+                fastParentField.setText(currentTag)
+                fastParentField.setForeground(new Color(0, 120, 0))
+                fastWaitingForParent = false
+                fastStatusLabel.setText("✅ Parent selected: ${currentTag}")
+                fastStatusLabel.setForeground(new Color(0, 120, 0))
+                fastAddButton.setEnabled(true)
+                fastChildNameField.requestFocusInWindow()
+            }
+        } as ActionListener)
+        buttonPanel.add(resetButton)
+        
+        JButton closeBtn = new JButton("✕ Close")
+        closeBtn.setFont(new Font(panelTextFontName, Font.PLAIN, 13))
+        closeBtn.addActionListener({ ActionEvent e ->
+            fastChildPanel.dispose()
+            fastChildPanelOpen = false
+            fastWaitingForParent = false
+        } as ActionListener)
+        buttonPanel.add(closeBtn)
+        
+        fastChildPanel.add(mainPanel, BorderLayout.CENTER)
+        fastChildPanel.add(buttonPanel, BorderLayout.SOUTH)
+        
+        fastChildPanel.addWindowListener(new WindowAdapter() {
+            @Override
+            void windowClosing(WindowEvent e) {
+                fastChildPanelOpen = false
+                fastWaitingForParent = false
+            }
+        })
+        
+        fastChildPanel.setVisible(true)
+        
+        String currentTag = getSelectedTagFromTree()
+        if (currentTag != null) {
+            fastParentField.setText(currentTag)
+            fastParentField.setForeground(new Color(0, 120, 0))
+            fastWaitingForParent = false
+            fastStatusLabel.setText("✅ Parent selected: ${currentTag}")
+            fastStatusLabel.setForeground(new Color(0, 120, 0))
+            fastAddButton.setEnabled(true)
+            fastChildNameField.requestFocusInWindow()
+        } else {
+            fastWaitingForParent = true
+            fastStatusLabel.setText(" 🔵 Please click on a tag in the tree to select as PARENT")
+            fastStatusLabel.setForeground(new Color(0, 0, 150))
+        }
+        
+    } catch (Exception e) {
+        JOptionPane.showMessageDialog(tagPanel,
+            "Error: ${e.message}",
+            "Error",
+            JOptionPane.ERROR_MESSAGE)
+        e.printStackTrace()
+        fastChildPanelOpen = false
+        fastWaitingForParent = false
+    }
+}
+
+void performFastAddChild() {
+    try {
+        String parentPath = fastParentField.getText()
+        String childName = fastChildNameField.getText().trim()
+        
+        if (parentPath.isEmpty()) {
+            JOptionPane.showMessageDialog(fastChildPanel,
+                "Please select a parent tag from the tree.",
+                "Error",
+                JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        if (childName.isEmpty()) {
+            JOptionPane.showMessageDialog(fastChildPanel,
+                "Please enter a name for the child tag.",
+                "Error",
+                JOptionPane.WARNING_MESSAGE)
+            return
+        }
+        
+        def mindmapNode = Controller.currentController.getSelection().getSelected()
+        if (mindmapNode == null) {
+            JOptionPane.showMessageDialog(fastChildPanel,
+                "No mindmap node selected.",
+                "Error",
+                JOptionPane.ERROR_MESSAGE)
+            return
+        }
+        
+        String fullTagName = "${parentPath}::${childName}"
+        
+        // Use IconController.getController()
+        def iconController = IconController.getController()
+        if (iconController == null) {
+            JOptionPane.showMessageDialog(fastChildPanel,
+                "Icon controller not available.",
+                "Error",
+                JOptionPane.ERROR_MESSAGE)
+            return
+        }
+        
+        def tag = new Tag(fullTagName, Color.ORANGE)
+        iconController.addTags(mindmapNode, [tag])
+        
+        Timer timer = new Timer(fastRemoveDelayMs, { e ->
             try {
-                // Save current row before navigating
-                int currentRow = row
-                
-                ScriptUtils.c().select(node)
-                def mapFile = node.mindMap.file
-                if (mapFile) {
-                    def uri = mapFile.toURI().toString() + "#" + node.id
-                    def link = new org.freeplane.core.util.Hyperlink(new URI(uri))
-                    org.freeplane.features.url.UrlManager.getController().loadHyperlink(link)
-                    SwingUtilities.invokeLater(new Runnable() {
-                        void run() {
-                            if (resultsTable != null && resultsTable.isShowing()) {
-                                resultsTable.requestFocusInWindow()
-                                // Re-select same row
-                                if (currentRow < resultsTable.getRowCount()) {
-                                    resultsTable.setRowSelectionInterval(currentRow, currentRow)
-                                }
-                            }
-                        }
-                    })
-                }
-            } catch (Exception e) {
-                e.printStackTrace()
-                JOptionPane.showMessageDialog(UITools.getCurrentFrame(), "Error navigating to node: ${e.message}")
+                def tags = new HashSet<Tag>()
+                tags.add(tag)
+                iconController.removeTags(mindmapNode, tags)
+                println "Tag '${fullTagName}' removed from mindmap node."
+                scheduleRefresh()
             }
-        }
-    }
-
-    private void focusSearchField() {
-        SwingUtilities.invokeLater({ if (searchField != null) { searchField.requestFocusInWindow(); searchField.selectAll() } })
-    }
-
-    // ========== Scrollable Panel ==========
-    class ScrollableTextPanel extends JPanel implements Scrollable {
-        ScrollableTextPanel() {
-            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS))
-            setBorder(BorderFactory.createEmptyBorder())
-            setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-        }
-        boolean getScrollableTracksViewportWidth() { return true }
-        boolean getScrollableTracksViewportHeight() { return false }
-        Dimension getPreferredScrollableViewportSize() { return getPreferredSize() }
-        int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) { return 10 }
-        int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width
-        }
-    }
-
-    // ========== AutoCompleteDecorator ==========
-    class AutoCompleteDecorator {
-        private JTextField textField
-        private JWindow popup
-        private JList<String> list
-        private DefaultListModel<String> listModel
-        private java.util.List<String> data
-        private String type
-        private SimpleMapCrawler crawler
-        private boolean preferAbove
-        private Timer popupTimer
-        AutoCompleteDecorator(JTextField field, java.util.List<String> history, String type, SimpleMapCrawler crawler, boolean preferAbove = false) {
-            this.textField = field
-            this.data = history
-            this.type = type
-            this.crawler = crawler
-            this.preferAbove = preferAbove
-            listModel = new DefaultListModel<>()
-            list = new JList<>(listModel)
-            list.setVisibleRowCount(6)
-            list.setFocusable(false)
-            int popupWidth = Math.max(400, textField.getWidth() * 3)
-            JScrollPane scroll = new JScrollPane(list)
-            scroll.setPreferredSize(new Dimension(popupWidth, 150))
-            scroll.setBorder(BorderFactory.createLineBorder(Color.GRAY))
-            popup = new JWindow()
-            popup.setBackground(new Color(0,0,0,0))
-            popup.add(scroll)
-            popup.setFocusableWindowState(false)
-            popupTimer = new Timer(80, { e -> actuallyShowPopup() })
-            popupTimer.setRepeats(false)
-            list.addMouseListener(new MouseAdapter() {
-                void mouseClicked(MouseEvent e) {
-                    selectCurrent()
-                }
-            })
-            textField.addMouseListener(new MouseAdapter() {
-                void mouseClicked(MouseEvent e) {
-                    if (SwingUtilities.isRightMouseButton(e)) showAllHistory()
-                }
-            })
-            textField.addFocusListener(new FocusAdapter() {
-                void focusGained(FocusEvent e) {
-                    SwingUtilities.invokeLater(() -> {
-                        if (textField.getText().isEmpty()) showAllHistory()
-                    })
-                }
-                void focusLost(FocusEvent e) { 
-                    popupTimer.stop()
-                    popup.setVisible(false) 
-                }
-            })
-            textField.addKeyListener(new KeyAdapter() {
-                void keyPressed(KeyEvent e) {
-                    int size = listModel.size()
-                    if (size == 0) return
-                    if (e.getKeyCode() == KeyEvent.VK_DOWN) {
-                        int next = list.getSelectedIndex() + 1
-                        if (next >= size) next = 0
-                        list.setSelectedIndex(next)
-                        list.ensureIndexIsVisible(next)
-                        e.consume()
-                    }
-                    else if (e.getKeyCode() == KeyEvent.VK_UP) {
-                        int prev = list.getSelectedIndex() - 1
-                        if (prev < 0) prev = size - 1
-                        list.setSelectedIndex(prev)
-                        list.ensureIndexIsVisible(prev)
-                        e.consume()
-                    }
-                    else if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                        if (popup.isVisible() && list.getSelectedValue() != null) {
-                            selectCurrent()
-                            e.consume()
-                        }
-                    }
-                    else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                        popup.setVisible(false)
-                        e.consume()
-                    }
-                }
-            })
-            textField.getDocument().addDocumentListener(new DocumentListener() {
-                void insertUpdate(DocumentEvent e) { scheduleSuggestions() }
-                void removeUpdate(DocumentEvent e) { scheduleSuggestions() }
-                void changedUpdate(DocumentEvent e) { scheduleSuggestions() }
-            })
-        }
-        private void scheduleSuggestions() {
-            popupTimer.restart()
-        }
-        private void actuallyShowPopup() {
-            showSuggestionsInternal()
-        }
-        private void selectCurrent() {
-            String selected = list.getSelectedValue()
-            if (selected != null) {
-                textField.setText(selected)
-                popup.setVisible(false)
-                if (type == "search") {
-                    crawler.doSearch()
-                } else if (type == "filter") {
-                    crawler.applyFilter()
-                }
-            }
-        }
-        void updateList(java.util.List<String> newData) {
-            this.data = newData
-        }
-        private void showAllHistory() {
-            if (data == null || data.isEmpty()) return
-            listModel.clear()
-            data.each { listModel.addElement(it) }
-            if (listModel.size() > 0) {
-                list.clearSelection()
-                popupTimer.stop()
-                showPopupNow()
-            } else {
-                popup.setVisible(false)
-            }
-        }
-        private void showSuggestionsInternal() {
-            String text = textField.getText()
-            if (text.length() < 1) {
-                popup.setVisible(false)
-                return
-            }
-            listModel.clear()
-            java.util.List<String> matches = data.findAll { it.toLowerCase().startsWith(text.toLowerCase()) }
-            if (matches.isEmpty()) {
-                popup.setVisible(false)
-                return
-            }
-            matches.each { listModel.addElement(it) }
-            list.clearSelection()
-            showPopupNow()
-        }
-        private void showPopupNow() {
-            if (listModel.isEmpty()) {
-                popup.setVisible(false)
-                return
-            }
-            try {
-                popup.setVisible(false)
-                Point fieldLoc = textField.getLocationOnScreen()
-                int x = fieldLoc.x
-                int yBelow = fieldLoc.y + textField.getHeight()
-                int yAbove = fieldLoc.y - popup.getPreferredSize().height
-                popup.pack()
-                Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment()
-                    .getDefaultScreenDevice().getDefaultConfiguration().getBounds()
-                int y = yBelow
-                if (preferAbove) {
-                    if (yAbove >= screen.y) y = yAbove
-                    else y = yBelow
-                } else {
-                    if (yBelow + popup.getHeight() <= screen.y + screen.height) y = yBelow
-                    else if (yAbove >= screen.y) y = yAbove
-                    else y = yBelow
-                }
-                if (y < screen.y) y = yBelow
-                popup.setLocation(x, y)
-                popup.setVisible(true)
-            } catch (Exception ex) {
+            catch(Exception ex) {
                 ex.printStackTrace()
             }
-        }
-    }
-
-    // ========== Static Helper Methods ==========
-    private static MIconController iconController() { return (MIconController) getModeController().getExtension(IconController.class) }
-    private static MModeController getModeController() { return MModeController.getMModeController() }
-    private static NodeModel getNodeModel(Node node) { return ((MapProxy) node.getMindMap()).getDelegate().getNodeForID(node.getId()) }
-    private static Color determineStringColor(String str) {
-        CRC32 crc = new CRC32()
-        crc.update(str.getBytes(StandardCharsets.UTF_8))
-        return HSLColorConverter.generateColorFromLong(crc.getValue())
-    }
-
-    private void editSelectedNode() {
-        int selectedRow = resultsTable.getSelectedRow()
-        if (selectedRow == -1) return
-        int modelRow = resultsTable.convertRowIndexToModel(selectedRow)
-        Object value = tableModel.getValueAt(modelRow, 9)
-        Node node = (value instanceof Object[]) ? ((Object[])value)[0] as Node : (value instanceof Node ? value as Node : null)
-        if (node != null) {
-            try {
-                ScriptUtils.c().select(node)
-                def mapFile = node.mindMap.file
-                if (mapFile) {
-                    def uri = mapFile.toURI().toString() + "#" + node.id
-                    def link = new org.freeplane.core.util.Hyperlink(new URI(uri))
-                    org.freeplane.features.url.UrlManager.getController().loadHyperlink(link)
-                }
-            } catch (Exception e) { e.printStackTrace() }
-        }
-    }
-
-    // ========== Floating breadcrumb and selection polling ==========
-    private void startMapSelectionPolling() {
-        if (mapSelectionPollingTimer != null && mapSelectionPollingTimer.isRunning()) return
-        mapSelectionPollingTimer = new Timer(200, new ActionListener() {
-            void actionPerformed(ActionEvent e) {
-                try {
-                    Node currentMapNode = ScriptUtils.c().getSelected()
-                    if (currentMapNode == null) return
-                    if (lastPolledMapNode == null || !currentMapNode.getId().equals(lastPolledMapNode.getId())) {
-                        lastPolledMapNode = currentMapNode
-                        SwingUtilities.invokeLater(new Runnable() {
-                            void run() {
-                                populatePreview(currentMapNode)
-                                if (showOnlyBreadcrumbs && breadcrumbOnlyPanel != null && breadcrumbOnlyPanel.isVisible()) {
-                                    refreshBreadcrumbModel()
-                                }
-                            }
-                        })
-                    }
-                } catch (Exception ex) { }
-            }
-        })
-        mapSelectionPollingTimer.start()
-    }
-
-    private void stopMapSelectionPolling() {
-        if (mapSelectionPollingTimer != null) {
-            mapSelectionPollingTimer.stop()
-            mapSelectionPollingTimer = null
-        }
-        lastPolledMapNode = null
-    }
-
-    private void toggleBreadcrumbOnlyMode() {
-        showOnlyBreadcrumbs = !showOnlyBreadcrumbs
-        saveSettingsToPrefs()
-        applyBreadcrumbOnlyMode()
-        if (showOnlyBreadcrumbs && breadcrumbOnlyPanel != null && breadcrumbOnlyPanel.isVisible()) {
-            refreshBreadcrumbModel()
-            updateBreadcrumbPosition()
-        }
-    }
-
-    private void applyBreadcrumbOnlyMode() {
-        if (showOnlyBreadcrumbs) {
-            showBreadcrumbOnly()
+        } as java.awt.event.ActionListener)
+        
+        timer.setRepeats(false)
+        timer.start()
+        
+        scheduleRefresh()
+        
+        fastParentField.setText("")
+        fastParentField.setForeground(new Color(100, 100, 100))
+        fastChildNameField.setText("")
+        
+        String currentTag = getSelectedTagFromTree()
+        if (currentTag != null) {
+            fastParentField.setText(currentTag)
+            fastParentField.setForeground(new Color(0, 120, 0))
+            fastWaitingForParent = false
+            fastStatusLabel.setText("✅ Parent selected: ${currentTag}")
+            fastStatusLabel.setForeground(new Color(0, 120, 0))
+            fastAddButton.setEnabled(true)
+            fastChildNameField.requestFocusInWindow()
         } else {
-            removeBreadcrumbOnly()
+            fastWaitingForParent = true
+            fastStatusLabel.setText(" 🔵 Click on a tag in the tree to select as PARENT")
+            fastStatusLabel.setForeground(new Color(0, 0, 150))
+            fastAddButton.setEnabled(false)
         }
+        
+    } catch (Exception ex) {
+        ex.printStackTrace()
+        JOptionPane.showMessageDialog(fastChildPanel,
+            "Error: ${ex.getMessage()}",
+            "Error",
+            JOptionPane.ERROR_MESSAGE)
     }
+}
 
-    // ========== Floating breadcrumb methods ==========
-    private void showBreadcrumbOnly() {
-        if (breadcrumbOnlyPanel != null) {
-            breadcrumbOnlyPanel.setVisible(true)
-            refreshBreadcrumbModel()
-            updateBreadcrumbPosition()
+
+// ============================================================
+// Merge/Copy Panel
+// ============================================================
+
+void openMergePanel() {
+    try {
+        if (mergePanel != null && mergePanel.isVisible()) {
+            mergePanel.toFront()
             return
         }
-        def mapView = Controller.getCurrentController().getMapViewManager().getMapView()
-        if (mapView == null) return
-        def frame = SwingUtilities.getWindowAncestor(mapView)
-        if (!(frame instanceof JFrame)) return
-        def layeredPane = frame.getLayeredPane()
-        if (layeredPane == null) return
-
-        breadcrumbOnlyPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0))
-        breadcrumbOnlyPanel.setOpaque(false)
-        breadcrumbOnlyPanel.setBackground(new Color(0, 0, 0, 0))
-        breadcrumbOnlyPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-
-        breadcrumbJList = new JList<>(ancestorsModel)
-        breadcrumbJList.setLayoutOrientation(JList.HORIZONTAL_WRAP)
-        breadcrumbJList.setVisibleRowCount(1)
-        breadcrumbJList.setFixedCellWidth(200)
-        breadcrumbJList.setFixedCellHeight(30)
-        breadcrumbJList.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-
-        breadcrumbJList.setCellRenderer(new DefaultListCellRenderer() {
+        
+        isMergePanelOpen = true
+        selectionStep = 1
+        
+        mergePanel = new JDialog(SwingUtilities.getWindowAncestor(tagPanel), "🔀 Merge OR Assign", false)
+        mergePanel.setLayout(new BorderLayout(10, 10))
+        mergePanel.setSize(600, 300)
+        mergePanel.setLocationRelativeTo(tagPanel)
+        mergePanel.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE)
+        
+        JPanel mainPanel = new JPanel(new GridBagLayout())
+        GridBagConstraints gbc = new GridBagConstraints()
+        gbc.insets = new Insets(8, 15, 8, 15)
+        gbc.fill = GridBagConstraints.HORIZONTAL
+        
+        gbc.gridx = 0
+        gbc.gridy = 0
+        gbc.gridwidth = 3
+        JLabel helpLabel = new JLabel("💡 Click 1st tag in tree → SOURCE | Click 2nd tag → TARGET")
+        helpLabel.setFont(new Font(panelTextFontName, Font.BOLD, 13))
+        helpLabel.setForeground(new Color(0, 100, 0))
+        mainPanel.add(helpLabel, gbc)
+        
+        gbc.gridwidth = 1
+        gbc.gridy = 1
+        gbc.gridx = 0
+        JLabel sourceLabel = new JLabel("🔽 Source:")
+        sourceLabel.setFont(new Font(panelTextFontName, Font.BOLD, 13))
+        mainPanel.add(sourceLabel, gbc)
+        
+        gbc.gridx = 1
+        gbc.gridwidth = 2
+        sourceField = new JTextField()
+        sourceField.setFont(new Font(panelTextFontName, Font.PLAIN, 13))
+        sourceField.setPreferredSize(new Dimension(350, 30))
+        sourceField.setEditable(false)
+        sourceField.setBackground(new Color(245, 245, 245))
+        sourceField.setForeground(new Color(100, 100, 100))
+        sourceField.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(200, 200, 200), 1),
+            BorderFactory.createEmptyBorder(3, 8, 3, 8)
+        ))
+        mainPanel.add(sourceField, gbc)
+        
+        gbc.gridwidth = 1
+        gbc.gridy = 2
+        gbc.gridx = 0
+        JLabel targetLabel = new JLabel("🔼 Target:")
+        targetLabel.setFont(new Font(panelTextFontName, Font.BOLD, 13))
+        mainPanel.add(targetLabel, gbc)
+        
+        gbc.gridx = 1
+        gbc.gridwidth = 2
+        targetField = new JTextField()
+        targetField.setFont(new Font(panelTextFontName, Font.PLAIN, 13))
+        targetField.setPreferredSize(new Dimension(350, 30))
+        targetField.setEditable(false)
+        targetField.setBackground(new Color(245, 245, 245))
+        targetField.setForeground(new Color(100, 100, 100))
+        targetField.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(200, 200, 200), 1),
+            BorderFactory.createEmptyBorder(3, 8, 3, 8)
+        ))
+        mainPanel.add(targetField, gbc)
+        
+        gbc.gridwidth = 1
+        gbc.gridy = 3
+        gbc.gridx = 0
+        JLabel modeLabel = new JLabel("⚙️ Mode:")
+        modeLabel.setFont(new Font(panelTextFontName, Font.BOLD, 13))
+        mainPanel.add(modeLabel, gbc)
+        
+        gbc.gridx = 1
+        gbc.gridwidth = 1
+        String[] modes = ["🔀 Merge (remove source)", "➕ Assign Tag Additionally (keep both)"]
+        modeCombo = new JComboBox<String>(modes)
+        modeCombo.setFont(new Font(panelTextFontName, Font.PLAIN, 13))
+        modeCombo.setPreferredSize(new Dimension(200, 30))
+        modeCombo.setToolTipText("Merge: replace source with target (remove source) | Assign Tag Additionally: add source to nodes that have target (keep both)")
+        mainPanel.add(modeCombo, gbc)
+        
+        gbc.gridwidth = 3
+        gbc.gridy = 4
+        gbc.gridx = 0
+        statusLabel = new JLabel(" 🔵 Click on a tag in the tree to select as SOURCE")
+        statusLabel.setFont(new Font(panelTextFontName, Font.BOLD, 12))
+        statusLabel.setForeground(new Color(0, 0, 150))
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5))
+        mainPanel.add(statusLabel, gbc)
+        
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 5))
+        
+        mergeButton = new JButton("⚡ OK")
+        mergeButton.setFont(new Font(panelTextFontName, Font.BOLD, 14))
+        mergeButton.setBackground(new Color(220, 240, 220))
+        mergeButton.setForeground(new Color(0, 120, 0))
+        mergeButton.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(0, 150, 0), 2),
+            BorderFactory.createEmptyBorder(8, 25, 8, 25)
+        ))
+        mergeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+        mergeButton.setEnabled(false)
+        mergeButton.addActionListener({ ActionEvent e ->
+            performMerge()
+        } as ActionListener)
+        buttonPanel.add(mergeButton)
+        
+        JButton resetButton = new JButton("↺ Reset")
+        resetButton.setFont(new Font(panelTextFontName, Font.PLAIN, 13))
+        resetButton.addActionListener({ ActionEvent e ->
+            sourceField.setText("")
+            sourceField.setForeground(new Color(100, 100, 100))
+            targetField.setText("")
+            targetField.setForeground(new Color(100, 100, 100))
+            selectionStep = 1
+            statusLabel.setText(" 🔵 Click on a tag in the tree to select as SOURCE")
+            statusLabel.setForeground(new Color(0, 0, 150))
+            mergeButton.setEnabled(false)
+        } as ActionListener)
+        buttonPanel.add(resetButton)
+        
+        JButton closeBtn = new JButton("✕ Close")
+        closeBtn.setFont(new Font(panelTextFontName, Font.PLAIN, 13))
+        closeBtn.addActionListener({ ActionEvent e ->
+            mergePanel.dispose()
+            isMergePanelOpen = false
+            selectionStep = 1
+        } as ActionListener)
+        buttonPanel.add(closeBtn)
+        
+        mergePanel.add(mainPanel, BorderLayout.CENTER)
+        mergePanel.add(buttonPanel, BorderLayout.SOUTH)
+        
+        mergePanel.addWindowListener(new WindowAdapter() {
             @Override
-            Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean hasFocus) {
-                Node node = (Node) value
-                String displayText = node.getPlainText()
-                if (ancestorTrimLength > 0 && displayText.length() > ancestorTrimLength) {
-                    displayText = TextUtils.getShortText(displayText, ancestorTrimLength, "\u2026")
-                }
-                JLabel label = (JLabel) super.getListCellRendererComponent(list, displayText, index, isSelected, hasFocus)
-                label.setToolTipText(node.getPlainText())
-                Color bg = getNodeBackgroundColor(node)
-                if (bg != null) {
-                    label.setBackground(bg)
-                    label.setForeground(getForegroundForBackground(bg))
-                    label.setOpaque(true)
-                } else {
-                    label.setOpaque(false)
-                }
-                Color borderColor = getBorderColorForNode(node)
-                label.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createMatteBorder(0, 5, 0, 0, borderColor),
-                    BorderFactory.createEmptyBorder(2, 8, 2, 8)
-                ))
-                return label
+            void windowClosing(WindowEvent e) {
+                isMergePanelOpen = false
+                selectionStep = 1
             }
         })
-
-        breadcrumbJList.addMouseListener(new MouseAdapter() {
-            void mouseClicked(MouseEvent e) {
-                int idx = breadcrumbJList.locationToIndex(e.getPoint())
-                if (idx != -1) {
-                    Node target = ancestorsModel.getElementAt(idx)
-                    navigateToNode(target)
-                }
-            }
-        })
-
-        JScrollPane scroll = new JScrollPane(breadcrumbJList)
-        scroll.setBorder(BorderFactory.createEmptyBorder())
-        scroll.setOpaque(false)
-        scroll.getViewport().setOpaque(false)
-        scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED)
-        scroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_NEVER)
-
-        breadcrumbOnlyPanel.add(scroll)
-        layeredPane.add(breadcrumbOnlyPanel, JLayeredPane.DRAG_LAYER)
-        layeredPane.setComponentZOrder(breadcrumbOnlyPanel, 0)
-
-        def viewport = mapView.getParent()
-        if (viewport instanceof JViewport) {
-            viewport.addChangeListener({ e -> updateBreadcrumbPosition() } as ChangeListener)
-        }
-        frame.addComponentListener(new ComponentAdapter() {
-            void componentResized(ComponentEvent e) { updateBreadcrumbPosition() }
-        })
-
-        updateBreadcrumbPosition()
-        refreshBreadcrumbModel()
+        
+        mergePanel.setVisible(true)
+        
+    } catch (Exception e) {
+        JOptionPane.showMessageDialog(tagPanel,
+            "Error: ${e.message}",
+            "Merge Error",
+            JOptionPane.ERROR_MESSAGE)
+        e.printStackTrace()
+        isMergePanelOpen = false
+        selectionStep = 1
     }
+}
 
-    private void removeBreadcrumbOnly() {
-        if (breadcrumbOnlyPanel != null) {
-            breadcrumbOnlyPanel.setVisible(false)
-        }
-    }
-
-    private void updateBreadcrumbPosition() {
-        if (breadcrumbOnlyPanel == null || !breadcrumbOnlyPanel.isVisible()) return
-        def mapView = Controller.getCurrentController().getMapViewManager().getMapView()
-        if (mapView == null) return
-        def viewport = mapView.getParent()
-        if (!(viewport instanceof JViewport)) return
-
-        Point viewportScreenLoc = viewport.getLocationOnScreen()
-        def parent = breadcrumbOnlyPanel.getParent()
-        if (parent == null) return
-        Point parentScreenLoc = parent.getLocationOnScreen()
-
-        int x = viewportScreenLoc.x - parentScreenLoc.x
-        int y = viewportScreenLoc.y - parentScreenLoc.y
-        int width = viewport.getWidth()
-        int height = 40
-
-        breadcrumbOnlyPanel.setBounds(x, y, width, height)
-        breadcrumbOnlyPanel.revalidate()
-        breadcrumbOnlyPanel.repaint()
-    }
-
-    private void refreshBreadcrumbModel() {
-        Node currentNode = ScriptUtils.c().getSelected()
-        if (currentNode == null) return
-        ancestorsModel.clear()
-
-        def fullPath = currentNode.getPathToRoot()
-        if (fullPath && !fullPath[0].isRoot()) {
-            fullPath = fullPath.reverse()
-        }
-        def ancestors = fullPath.size() > 1 ? fullPath[0..-2] : []
-
-        if (useVisibleRootOnly) {
-            def viewRoot = getActiveViewRoot()
-            if (viewRoot != null && currentNode.getMindMap() == viewRoot.getMindMap()) {
-                int idx = fullPath.indexOf(viewRoot)
-                if (idx != -1 && idx < ancestors.size()) {
-                    ancestors = ancestors[idx..-1]
-                } else if (idx == ancestors.size()) {
-                    ancestors = []
-                }
-            }
-        }
-
-        if (reverseAncestorOrder) {
-            ancestors = ancestors.reverse()
-        }
-
-        ancestors.each { ancestorsModel.addElement(it) }
-
-        SwingUtilities.invokeLater({
-            if (breadcrumbJList != null && ancestorsModel.size() > 0) {
-                breadcrumbJList.ensureIndexIsVisible(ancestorsModel.size() - 1)
-            }
-            if (breadcrumbOnlyPanel != null && !breadcrumbOnlyPanel.isVisible() && showOnlyBreadcrumbs) {
-                breadcrumbOnlyPanel.setVisible(true)
-            }
-        })
-    }
-
-    private void navigateToNode(Node target) {
-        if (target == null) return
-        try {
-            ScriptUtils.c().select(target)
-            def mapFile = target.getMindMap().getFile()
-            if (mapFile) {
-                def uri = mapFile.toURI().toString() + "#" + target.getId()
-                def link = new org.freeplane.core.util.Hyperlink(new URI(uri))
-                org.freeplane.features.url.UrlManager.getController().loadHyperlink(link)
-            }
-        } catch (Exception ex) { ex.printStackTrace() }
-    }
-
-    // ========== Populate preview for map selection ==========
-    private void populatePreview(Node node) {
-        if (node == null) {
-            clearPreview()
-            removeMapNodeRow()
+// Execute merge
+void performMerge() {
+    try {
+        String sourceFull = sourceField.getText()
+        String targetFull = targetField.getText()
+        
+        if (sourceFull.isEmpty() || targetFull.isEmpty()) {
+            JOptionPane.showMessageDialog(mergePanel,
+                "Please select both source and target tags.",
+                "Error",
+                JOptionPane.WARNING_MESSAGE)
             return
         }
         
-        // Add row at top of table
-        addMapNodeRow(node)
+        if (sourceFull == targetFull) {
+            JOptionPane.showMessageDialog(mergePanel,
+                "Source and target cannot be the same.",
+                "Error",
+                JOptionPane.WARNING_MESSAGE)
+            return
+        }
         
-        if (leftPreviewPanel != null && !leftPreviewPanel.isVisible() && !hidePreviewPanel) {
-            leftPreviewPanel.setVisible(true)
-            if (innerSplitPane != null) innerSplitPane.setDividerLocation(0.35)
+        String source = sourceFull
+        String target = targetFull
+        
+        String mode = modeCombo.getSelectedItem()
+        boolean isMerge = mode.contains("Merge")
+        
+        String actionName = isMerge ? "Merge" : "Assign"
+        String actionIcon = isMerge ? "🔀" : "➕"
+        
+        int confirm = JOptionPane.showConfirmDialog(mergePanel,
+            "${actionIcon} ${actionName} '${sourceFull}' into '${targetFull}'?\n\n" +
+            "Source: ${sourceFull} ${isMerge ? '(will be REMOVED)' : '(will be KEPT)'}\n" +
+            "Target: ${targetFull} (will be kept)\n\n" +
+            "Operation: ${isMerge ? 'Replace source with target' : 'Add source tag (keep both)'}",
+            "Confirm ${actionName}",
+            JOptionPane.YES_NO_OPTION)
+        
+        if (confirm != JOptionPane.YES_OPTION) return
+        
+        // Use IconController.getController() instead of MIconController
+        def iconController = IconController.getController()
+        if (iconController == null) {
+            JOptionPane.showMessageDialog(mergePanel,
+                "Icon controller not available.",
+                "Error",
+                JOptionPane.ERROR_MESSAGE)
+            return
         }
-    
-        NodeModel nodeModel = getNodeModel(node)
-        String styleName = node.getStyle()?.getName()
-        if (styleName) {
-            Font previewFont = (fontPreviewCore != null) ? fontPreviewCore : new Font("Segoe UI", Font.PLAIN, 14)
-            styleLabel.setText(styleName)
-            styleLabel.setFont(previewFont.deriveFont(Font.PLAIN, previewFont.getSize()))
-            styleLabel.setForeground(Color.BLACK)
+        
+        def map = boundMapView.getMap()
+        def root = map.getRootNode()
+
+        int updated = 0
+        
+        if (isMerge) {
+            updated = mergeNodes(root, iconController, source, target)
         } else {
-            styleLabel.setText("")
+            updated = assignNodesReverse(root, iconController, target, source)
         }
-    
-        tagViewer.removeAll()
-        def icons = iconController().getIcons(nodeModel, StyleOption.FOR_UNSELECTED_NODE)
-        def tags = iconController().getTagIcons(nodeModel)
-        icons.each { tagViewer.add(new JLabel(it.getIcon())) }
-        tags.each { tagViewer.add(new JLabel(it)) }
-        tagViewer.revalidate(); tagViewer.repaint()
-    
-        Font useFontCore = (fontPreviewCore != null) ? fontPreviewCore : previewCore.getFont()
-        String coreRaw = node.getHtmlText() ?: node.getPlainText()
-        String styledCore = getStyledCellContent(coreRaw, node, useFontCore, true, 0)
-        previewCore.setText("<html>${styledCore}</html>")
-        Color nodeBg = getNodeBackgroundColor(node)
-        if (nodeBg != null) {
-            previewCore.setBackground(nodeBg)
-        } else {
-            previewCore.setBackground(UIManager.getColor("Panel.background"))
+
+        JOptionPane.showMessageDialog(mergePanel,
+            "✅ ${actionName} completed!\n\n" +
+            "Source : ${sourceFull}\n" +
+            "Target : ${targetFull}\n\n" +
+            "Updated nodes : ${updated}",
+            "${actionName} Tag",
+            JOptionPane.INFORMATION_MESSAGE)
+
+        if (tagTree != null) {
+            tagTree.updateUI()
+            refreshTree()
         }
-        previewCore.setOpaque(true)
-    
-        Font detailsFont = (fontPreviewDetails != null) ? fontPreviewDetails : previewDetails.getFont()
-        String detailsRaw = node.getDetails()?.getHtml() ?: node.getDetails()?.getPlain() ?: ""
-        String styledDetails = getStyledCellContent(detailsRaw, node, detailsFont, true, 0)
-        previewDetails.setText("<html>${styledDetails}</html>")
-        previewDetails.setBackground(nodeBg != null ? nodeBg : UIManager.getColor("Panel.background"))
-        previewDetails.setOpaque(true)
-    
-        Font noteFont = (fontPreviewNote != null) ? fontPreviewNote : previewNote.getFont()
-        String noteRaw = node.getNote()?.getHtml() ?: node.getNote()?.getPlain() ?: ""
-        String styledNote = getStyledCellContent(noteRaw, node, noteFont, true, 0)
-        previewNote.setText("<html>${styledNote}</html>")
-        previewNote.setBackground(nodeBg != null ? nodeBg : UIManager.getColor("Panel.background"))
-        previewNote.setOpaque(true)
-    
-        breadcrumbPanel.removeAll()
-        try {
-            def fullPath = node.getPathToRoot()
-            if (fullPath && !fullPath[0].isRoot()) {
-                fullPath = fullPath.reverse()
-            }
-            def displayPath = fullPath.size() > 1 ? fullPath[0..-2] : []
-            if (useVisibleRootOnly) {
-                def viewRoot = getActiveViewRoot()
-                if (viewRoot != null && node.mindMap == viewRoot.mindMap) {
-                    int idx = fullPath.indexOf(viewRoot)
-                    if (idx != -1) {
-                        if (idx <= displayPath.size()) {
-                            displayPath = displayPath[idx..-1]
-                        } else {
-                            displayPath = []
-                        }
-                    }
-                }
-            }
-            int maxNodes = 5
-            int start = Math.max(0, displayPath.size() - maxNodes)
-            JPanel tempPanel = new JPanel()
-            tempPanel.setLayout(new BoxLayout(tempPanel, BoxLayout.LINE_AXIS))
-            tempPanel.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-            if (start > 0) {
-                JLabel ellipsisLabel = new JLabel(" ... ")
-                ellipsisLabel.setFont(ellipsisLabel.getFont().deriveFont(Font.BOLD))
-                tempPanel.add(ellipsisLabel)
-            }
-            ButtonGroup bg = new ButtonGroup()
-            for (int i = start; i < displayPath.size(); i++) {
-                Node n = displayPath.get(i)
-                String nodeText = n.getPlainText()
-                String shortText = nodeText
-                if (ancestorTrimLength > 0 && nodeText.length() > ancestorTrimLength) {
-                    shortText = TextUtils.getShortText(nodeText, ancestorTrimLength, "\u2026")
-                }
-                JRadioButton btn = new JRadioButton(shortText)
-                btn.setToolTipText(nodeText)
-                if (fontBreadcrumb != null) btn.setFont(fontBreadcrumb)
-                else btn.setFont(btn.getFont().deriveFont(Font.PLAIN))
-                Color bgColor = getNodeBackgroundColor(n)
-                if (bgColor != null) {
-                    btn.setBackground(bgColor)
-                    btn.setForeground(getForegroundForBackground(bgColor))
-                    btn.setOpaque(true)
-                    btn.setContentAreaFilled(true)
-                } else {
-                    btn.setOpaque(false)
-                    btn.setForeground(UIManager.getColor("Label.foreground"))
-                }
-                Color borderColor = getBorderColorForNode(n)
-                Border leftBorder = BorderFactory.createMatteBorder(0, 5, 0, 0, borderColor)
-                Border padding = BorderFactory.createEmptyBorder(2, 6, 2, 6)
-                btn.setBorder(BorderFactory.createCompoundBorder(leftBorder, padding))
-                btn.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
-                btn.setHorizontalAlignment(SwingConstants.RIGHT)
-                btn.setHorizontalTextPosition(SwingConstants.LEFT)
-                btn.putClientProperty("node", n)
-                final Node target = n
-                final JRadioButton currentBtn = btn
-                btn.addActionListener({ e ->
-                    for (Component comp : tempPanel.getComponents()) {
-                        if (comp instanceof JRadioButton) {
-                            ((JRadioButton)comp).setForeground(UIManager.getColor("Label.foreground"))
-                            ((JRadioButton)comp).setFont(((JRadioButton)comp).getFont().deriveFont(Font.PLAIN))
-                            Node oldNode = (Node) ((JRadioButton)comp).getClientProperty("node")
-                            if (oldNode != null) {
-                                Color oldBg = getNodeBackgroundColor(oldNode)
-                                if (oldBg != null) {
-                                    ((JRadioButton)comp).setBackground(oldBg)
-                                    ((JRadioButton)comp).setForeground(getForegroundForBackground(oldBg))
-                                } else {
-                                    ((JRadioButton)comp).setOpaque(false)
-                                }
-                            }
-                        }
-                    }
-                    currentBtn.setForeground(Color.BLUE)
-                    currentBtn.setFont(currentBtn.getFont().deriveFont(Font.BOLD))
-                    try {
-                        ScriptUtils.c().select(target)
-                        def mapFile = target.getMindMap().getFile()
-                        if (mapFile) {
-                            def uri = mapFile.toURI().toString() + "#" + target.getId()
-                            def link = new org.freeplane.core.util.Hyperlink(new URI(uri))
-                            org.freeplane.features.url.UrlManager.getController().loadHyperlink(link)
-                            SwingUtilities.invokeLater(new Runnable() {
-                                void run() {
-                                    if (resultsTable != null && resultsTable.isShowing()) {
-                                        resultsTable.requestFocusInWindow()
-                                    }
-                                }
-                            })
-                        }
-                    } catch (Exception ex) { ex.printStackTrace() }
-                })
-                tempPanel.add(btn)
-                bg.add(btn)
-            }
-            for (Component comp : tempPanel.getComponents()) {
-                if (comp instanceof JRadioButton) {
-                    Node storedNode = (Node) ((JRadioButton)comp).getClientProperty("node")
-                    if (storedNode == node) {
-                        ((JRadioButton)comp).setSelected(true)
-                        ((JRadioButton)comp).setForeground(Color.BLUE)
-                        ((JRadioButton)comp).setFont(((JRadioButton)comp).getFont().deriveFont(Font.BOLD))
-                        break
-                    }
-                }
-            }
-            breadcrumbPanel.add(tempPanel, BorderLayout.CENTER)
-        } catch (Exception e) {
-            breadcrumbPanel.add(new JLabel(" "), BorderLayout.CENTER)
-            System.err.println("Breadcrumb error: ${e.message}")
-        }
-        breadcrumbPanel.revalidate()
-        breadcrumbPanel.repaint()
-        breadcrumbPanel.setVisible(true)
+        
+        // Reset fields
+        sourceField.setText("")
+        sourceField.setForeground(new Color(100, 100, 100))
+        targetField.setText("")
+        targetField.setForeground(new Color(100, 100, 100))
+        selectionStep = 1
+        statusLabel.setText(" 🔵 Click on a tag in the tree to select as SOURCE")
+        statusLabel.setForeground(new Color(0, 0, 150))
+        mergeButton.setEnabled(false)
+
+    } catch (Exception e) {
+        e.printStackTrace()
+        JOptionPane.showMessageDialog(mergePanel,
+            "Error: ${e.message}",
+            "Error",
+            JOptionPane.ERROR_MESSAGE)
     }
-} // End of SimpleMapCrawler class
+}
+
+// ============================================================
+// Merge and Copy functions
+// ============================================================
+
+int mergeNodes(NodeModel node, IconController iconController, String source, String target) {
+    int changed = 0
+    def tags = iconController.getTags(node)
+
+    if (tags != null) {
+        def names = tags.collect{
+            it instanceof Tag ? it.getContent() : it.toString()
+        }
+        if (names.contains(source)) {
+            def removeTag = new Tag(source, null)
+        
+            if (!names.contains(target)) {
+                iconController.addTagsFromSpec(node, target)
+            }
+        
+            iconController.removeTags(node, [removeTag] as Set)
+            changed++
+        }
+    }
+
+    node.getChildren().each{
+        changed += mergeNodes(it, iconController, source, target)
+    }
+
+    return changed
+}
+
+int assignNodesReverse(NodeModel node, IconController iconController, String target, String source) {
+    int changed = 0
+    def tags = iconController.getTags(node)
+
+    if (tags != null) {
+        def names = tags.collect {
+            it instanceof Tag ? it.getContent() : it.toString()
+        }
+
+        if (names.contains(target)) {
+            if (!names.contains(source)) {
+                iconController.addTagsFromSpec(node, source)
+                changed++
+            }
+        }
+    }
+
+    node.getChildren().each {
+        changed += assignNodesReverse(it, iconController, target, source)
+    }
+
+    return changed
+}
+
+
+// ============================================================
+// Merge / Assign from right-click menu
+// ============================================================
+
+JLabel sectionLabel(String text) {
+    JLabel label = new JLabel(text)
+    label.setFont(label.getFont().deriveFont(Font.BOLD))
+    label.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0))
+    return label
+}
+
+JComponent leftAligned(JComponent component) {
+    component.setAlignmentX(Component.LEFT_ALIGNMENT)
+    return component
+}
+
+JLabel previewChip(String text) {
+    JLabel chip = new JLabel(text)
+    chip.setOpaque(true)
+    chip.setBorder(BorderFactory.createEmptyBorder(1, 6, 1, 6))
+    return chip
+}
+
+void applyPreviewChips(JLabel parentChip, JLabel childChip) {
+    Map<String, String> nothingExists = new HashMap<String, String>()
+    List<String> parentColors = colorsForNewPath(["parent"], nothingExists)
+    Color parentColor = parseTagColor(parentColors.get(0), "parent")
+
+    Map<String, String> parentExists = new HashMap<String, String>()
+    parentExists.put("parent", hexOf(parentColor))
+    List<String> childColors = colorsForNewPath(["parent", "child"], parentExists)
+    Color childColor = parseTagColor(childColors.get(1), "parent" + separator() + "child")
+
+    parentChip.setBackground(parentColor)
+    parentChip.setForeground(UITools.getTextColorForBackground(parentColor))
+    childChip.setBackground(childColor)
+    childChip.setForeground(UITools.getTextColorForBackground(childColor))
+}
+
+/*
+ ============================================================================
+ End of Options dialog
+ ============================================================================
+*/
+
+void addUsageMenuItems(JPopupMenu menu) {
+    if (!showUsageCounts) return
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        return
+    }
+    int unused = countUnusedTags(state)
+
+    menu.addSeparator()
+    JCheckBoxMenuItem hideItem = new JCheckBoxMenuItem("Hide unused tags", hideUnusedTags)
+    hideItem.addActionListener({ ActionEvent e ->
+        hideUnusedTags = hideItem.isSelected()
+        refreshTree()
+    } as ActionListener)
+    hideItem.setEnabled(unused > 0 || hideUnusedTags)
+    menu.add(hideItem)
+
+    JCheckBoxMenuItem sortItem = new JCheckBoxMenuItem("Sort by usage", isSortByUsage())
+    sortItem.setToolTipText("Drop the category nesting and list every tag, most used first")
+    sortItem.addActionListener({ ActionEvent e -> applySortByUsage(sortItem.isSelected()) } as ActionListener)
+    menu.add(sortItem)
+
+    JMenu deleteUnused = new JMenu("Delete all unused tags (" + unused + ")")
+    deleteUnused.setEnabled(unused > 0)
+    deleteUnused.add(menuItem("Confirm — no node uses them, and Ctrl+Z undoes",
+            { deleteAllUnusedTags() }))
+    menu.add(deleteUnused)
+}
+
+void deleteAllUnusedTags() {
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        showStatus("Could not read tags: " + t.getMessage())
+        return
+    }
+    List<Map> victims = unusedTagsToDelete(state)
+    if (victims.isEmpty()) {
+        showStatus("No unused tags")
+        return
+    }
+
+    try {
+        def mindMap = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap
+        def categories = mindMap.tagCategories
+        List instructions = victims.collect { victim ->
+            new MapTagCategoryInstruction(MapTagCategoryInstructionType.DELETE_TAG,
+                    (List<String>) victim.path, null, null,
+                    victim.uncategorized ? MapTagTargetLocation.UNCATEGORIZED : MapTagTargetLocation.CATEGORIZED,
+                    null, null, null)
+        }
+        categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, instructions))
+        victims.each { remapFavorites((String) it.qn, null) }
+        showStatus("Deleted " + victims.size() + " unused tag" + (victims.size() == 1 ? "" : "s") + " — Ctrl+Z undoes")
+        refreshTree()
+    } catch (Throwable t) {
+        showStatus("Delete failed: " + t.getMessage())
+    }
+}
+
+JMenuItem menuItem(String text, Closure action) {
+    JMenuItem item = new JMenuItem(text)
+    item.addActionListener({ ActionEvent e -> action.call() } as ActionListener)
+    return item
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Context menu ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Map filter by tag ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+void filterMapByTag(TagRow row) {
+    String qn = row.qualifiedName
+    String prefix = qn + separator()
+    def rootProxy = ProxyFactory.createNode(boundMapView.map.rootNode, null)
+    Set<NodeModel> matches = new HashSet<NodeModel>()
+    rootProxy.find { n ->
+        n.getTags().getTags().any { String t -> t == qn || t.startsWith(prefix) }
+    }.each { matches.add((NodeModel) it.delegate) }
+
+    if (matches.isEmpty()) {
+        showStatus("No node carries '" + qn + "'")
+        return
+    }
+
+    MapModel map = boundMapView.getMap()
+    ICondition condition = { NodeModel n -> matches.contains(n) } as ICondition
+    Filter filter = new Filter(condition, false, true, showTagFilterDescendants, false, null)
+    FilterController.getCurrentFilterController().applyFilter(map, true, filter)
+    unfoldAncestorsTracking(matches, filter)
+    mapFilterActive = true
+    showStatus("Map filtered: " + matches.size() + " node" + (matches.size() == 1 ? "" : "s")
+            + " with '" + qn + "'")
+}
+
+void unfoldAncestorsTracking(Collection<NodeModel> matches, Filter filter) {
+    def mapController = Controller.getCurrentModeController().getMapController()
+    Set<NodeModel> visited = new HashSet<NodeModel>()
+    for (NodeModel match : matches) {
+        NodeModel ancestor = match.getParentNode()
+        while (ancestor != null) {
+            if (visited.add(ancestor) && ancestor.isFolded()) {
+                nodesUnfoldedByFilter.add(ancestor)
+                mapController.setFolded(ancestor, false, filter)
+            }
+            ancestor = ancestor.getParentNode()
+        }
+    }
+}
+
+void clearMapFilter(boolean announce) {
+    if (!mapFilterActive && nodesUnfoldedByFilter.isEmpty()) return
+
+    if (boundMapView != null) {
+        MapModel map = boundMapView.getMap()
+        Filter noFilter = new Filter(FilterController.NO_FILTERING, false, true, showTagFilterDescendants, false, null)
+        FilterController.getCurrentFilterController().applyFilter(map, true, noFilter)
+        restoreFolding()
+    }
+    mapFilterActive = false
+    if (announce) showStatus("Map filter cleared; folding restored")
+}
+
+void restoreFolding() {
+    if (nodesUnfoldedByFilter.isEmpty()) return
+    def mapController = Controller.getCurrentModeController().getMapController()
+    def selection = boundMapView.getMapSelection()
+    Filter current = selection != null ? selection.getFilter() : null
+    for (NodeModel node : nodesUnfoldedByFilter) {
+        if (isNodeInMap(node)) mapController.setFolded(node, true, current)
+    }
+    nodesUnfoldedByFilter.clear()
+}
+
+boolean isNodeInMap(NodeModel node) {
+    NodeModel top = node
+    while (top.getParentNode() != null) top = top.getParentNode()
+    return top.is(boundMapView.getMap().getRootNode())
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Map filter by tag ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Retract / expand ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+int viewportHeight() {
+    return boundScrollPane.getViewport().getHeight()
+}
+
+int retractedWidth() {
+    return (int) (boundScrollPane.getViewport().getWidth() / retractedWidthFactor)
+}
+
+int expandedWidth() {
+    return retractedWidth() * expandedWidthFactor
+}
+
+int wideWidth() {
+    return (int) (boundScrollPane.getViewport().getWidth() * wideWidthPercent / 100)
+}
+
+int fittedHeight(int panelWidth) {
+    invalidatePreferredSizeCache()
+    int preferred = (int) tagPanel.getPreferredSize().height
+
+    if (horizontalScrollBarNeeded(panelWidth)) {
+        preferred += (int) treeScrollPane.getHorizontalScrollBar().getPreferredSize().height
+    }
+    return Math.min(preferred, viewportHeight())
+}
+
+void invalidatePreferredSizeCache() {
+    if (tagTree != null) tagTree.invalidate()
+    if (treeScrollPane != null) treeScrollPane.invalidate()
+    if (favoritesStrip != null) favoritesStrip.invalidate()
+    if (tagPanel != null) tagPanel.invalidate()
+}
+
+boolean horizontalScrollBarNeeded(int panelWidth) {
+    if (treeScrollPane == null || tagTree == null || tagTree.getRowCount() == 0) return false
+
+    int contentWidth = (int) tagTree.getPreferredSize().width
+    boolean verticalLikely = ((int) tagPanel.getPreferredSize().height) > viewportHeight()
+    int verticalWidth = verticalLikely ? (int) treeScrollPane.getVerticalScrollBar().getPreferredSize().width : 0
+    int availableWidth = panelWidth - 2 * panelBorderThickness - verticalWidth
+
+    return contentWidth > availableWidth
+}
+
+boolean panelHasFocus() {
+    Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()
+    return owner != null && tagPanel != null && SwingUtilities.isDescendingFrom(owner, tagPanel)
+}
+
+void fitPanelBounds() {
+    if (tagPanel == null) return
+    boolean stayExpanded = mouseOverPanel || panelHasFocus() || popupOpen ||
+            (tagTree != null && tagTree.isEditing())
+    int width = wideMode ? wideWidth() : (stayExpanded ? expandedWidth() : retractedWidth())
+    animatePanelToWidth(width)
+}
+
+void animatePanelToWidth(int targetWidth) {
+    if (resizeAnimationTimer != null) {
+        resizeAnimationTimer.stop()
+        resizeAnimationTimer = null
+    }
+
+    int startWidth = tagPanel.getWidth()
+    int rowCount = tagTree != null ? tagTree.getRowCount() : 0
+    if (resizeAnimationSteps <= 1 || startWidth == targetWidth || rowCount > resizeAnimationMaxRows) {
+        applyPanelBounds(targetWidth)
+        return
+    }
+
+    int[] step = [0]
+    resizeAnimationTimer = new Timer(resizeAnimationStepMs, { ActionEvent e ->
+        step[0]++
+        if (step[0] >= resizeAnimationSteps) {
+            ((Timer) e.getSource()).stop()
+            resizeAnimationTimer = null
+            applyPanelBounds(targetWidth)
+        } else {
+            float t = step[0] / (float) resizeAnimationSteps
+            float eased = 1f - (1f - t) * (1f - t)
+            applyPanelBounds(startWidth + (int) ((targetWidth - startWidth) * eased))
+        }
+    } as ActionListener)
+    resizeAnimationTimer.start()
+}
+
+void applyPanelBounds(int width) {
+    if (tagPanel == null) return
+    int height = fittedHeight(width)
+    Rectangle viewportBounds = viewportBoundsInHost()
+    int x = (viewportBounds.x as int) + (viewportBounds.width as int) - width
+    int y = viewportBounds.y as int
+    if (tagPanel.getX() == x && tagPanel.getY() == y
+            && tagPanel.getWidth() == width && tagPanel.getHeight() == height) return
+
+    tagPanel.setBounds(x, y, width, height)
+    overlayHost.revalidate()
+    overlayHost.repaint()
+}
+
+/*
+ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Retract / expand ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+*/
+
+
+/*
+ ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Utilities ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+*/
+
+// Get qualified tag name considering parents
+String getTagQualifiedName(def icon) {
+    try {
+        def tag = icon.getTag()
+        if (tag == null) return null
+        
+        // Use qualifiedTag (like sample code)
+        try {
+            def qualified = tag.getQualifiedTag()
+            if (qualified != null) {
+                String content = qualified.getContent()
+                if (content != null && !content.isEmpty()) {
+                    return content
+                }
+            }
+        } catch (Throwable t) {
+            // If qualifiedTag is not available, use alternative method
+        }
+        
+        // Alternative method: get from TagCategories
+        String simpleName = tag.getContent()
+        if (simpleName == null || simpleName.isEmpty()) {
+            simpleName = tag.toString()
+        }
+        
+        try {
+            def state = readState()
+            Map<String, String> allTags = new HashMap<String, String>()
+            
+            def collect = { cat ->
+                allTags.put(cat.qualifiedName, cat.name)
+                cat.children.each { collect(it) }
+            }
+            state.categories.each { collect(it) }
+            state.uncategorizedTags.each { 
+                allTags.put(it.qualifiedName, it.name)
+            }
+            
+            for (Map.Entry<String, String> entry : allTags.entrySet()) {
+                if (entry.getValue() == simpleName) {
+                    return entry.getKey()
+                }
+            }
+            
+            return simpleName
+            
+        } catch (Throwable t) {
+            return simpleName
+        }
+        
+    } catch (Throwable t) {
+        return null
+    }
+}
+
+void showStatus(String message) {
+    if (statusLabel != null) statusLabel.setText(" " + message)
+}
+
+JPanel transparentPanel(LayoutManager layout) {
+    JPanel panel = new JPanel(layout)
+    panel.setOpaque(false)
+    return panel
+}
+
+Font itemFont() {
+    if (cachedItemFont == null) cachedItemFont = new Font(panelTextFontName, Font.PLAIN, panelTextFontSize)
+    return cachedItemFont
+}
+
+Color mapBackground() {
+    return boundMapView.getBackground() ?: Color.WHITE
+}
+
+Color barTextColor() {
+    return UITools.getTextColorForBackground(barColor)
+}
+
+Color panelBorderColor() {
+    Color base = UITools.getTextColorForBackground(mapBackground())
+    return new Color(base.getRed(), base.getGreen(), base.getBlue(), panelBorderOpacity)
+}
+
+Color blendColors(Color base, Color tint, float ratio) {
+    return new Color(
+            (int) (base.getRed() + (tint.getRed() - base.getRed()) * ratio),
+            (int) (base.getGreen() + (tint.getGreen() - base.getGreen()) * ratio),
+            (int) (base.getBlue() + (tint.getBlue() - base.getBlue()) * ratio))
+}
+
+Color barHoverColor() {
+    return blendColors(barColor, barTextColor(), 0.18f)
+}
+
+void bindKey(JComponent component, int condition, int keyCode, int modifiers, String actionName, Closure action) {
+    component.getInputMap(condition).put(KeyStroke.getKeyStroke(keyCode, modifiers), actionName)
+    component.getActionMap().put(actionName, new AbstractAction() {
+        @Override
+        void actionPerformed(ActionEvent e) { action.call() }
+    })
+}
+
+void addHoverListenerRecursively(Component component) {
+    component.addMouseListener(hoverListener)
+    if (component instanceof Container) {
+        ((Container) component).components.each { addHoverListenerRecursively(it) }
+    }
+}
+
+void pickGlyphs() {
+    Font font = itemFont()
+    if (font.canDisplayUpTo(markAll) != -1) markAll = "*"
+    if (font.canDisplayUpTo(markSome) != -1) markSome = "~"
+    if (font.canDisplayUpTo(favoriteSymbol) != -1) favoriteSymbol = "!"
+    if (font.canDisplayUpTo(filterHidesSymbol) != -1) filterHidesSymbol = "v"
+    if (font.canDisplayUpTo(highlightOnlySymbol) != -1) highlightOnlySymbol = "-"
+}
+
+String foldAccents(String text) {
+    StringBuilder out = null
+    for (int i = 0; i < text.length(); i++) {
+        char ch = text.charAt(i)
+        char folded = ch < ((char) 128) ? ch : foldChar(ch)
+        if (out == null && folded != ch) {
+            out = new StringBuilder(text.length())
+            out.append(text, 0, i)
+        }
+        if (out != null) out.append(folded)
+    }
+    return out == null ? text : out.toString()
+}
+
+char foldChar(char ch) {
+    Character cached = accentFoldCache.get(ch)
+    if (cached != null) return cached.charValue()
+
+    String decomposed = java.text.Normalizer.normalize(String.valueOf(ch), java.text.Normalizer.Form.NFD)
+    char base = ch
+    for (int j = 0; j < decomposed.length(); j++) {
+        if (Character.getType(decomposed.charAt(j)) != Character.NON_SPACING_MARK) {
+            base = decomposed.charAt(j)
+            break
+        }
+    }
+    accentFoldCache.put(ch, base)
+    return base
+}
+
+
+
+
+// ============================================================
+// Tag Click Locator - Click on tag in the map
+// ============================================================
+
+void installClickLocator() {
+    JRootPane anchor = findMainRootPane()
+    if (anchor == null) {
+        showStatus("📍 Tag click locator: main window not found.")
+        return
+    }
+    
+    Object existing = anchor.getClientProperty(CLICK_LOCATOR_KEY)
+    if (existing != null) {
+        Toolkit.getDefaultToolkit().removeAWTEventListener((AWTEventListener) existing)
+        anchor.putClientProperty(CLICK_LOCATOR_KEY, null)
+        tagClickLocatorListener = null
+        showStatus("📍 Locator: OFF")
+        return
+    }
+    
+    tagClickLocatorListener = new AWTEventListener() {
+        @Override
+        void eventDispatched(AWTEvent event) {
+            if (!(event instanceof MouseEvent)) return
+            MouseEvent e = (MouseEvent) event
+            if (e.getID() != MouseEvent.MOUSE_CLICKED) return
+            if (e.getButton() != MouseEvent.BUTTON1 || e.getClickCount() != 1) return
+            Component comp = e.getComponent()
+            if (comp == null) return
+            
+            if (!comp.getClass().getName().endsWith("MapViewIconListComponent")) return
+            try {
+                def icon = comp.getIconAt(e.getPoint())
+                if (icon == null) return
+                if (!icon.getClass().getName().endsWith("TagIcon")) return
+                
+                String qualified = icon.getTag().qualifiedTag().getContent()
+                if (qualified != null && !qualified.isEmpty()) {
+                    SwingUtilities.invokeLater({
+                        revealTagInTree(qualified)
+                    })
+                }
+            } catch (Throwable ignore) {}
+        }
+    }
+    
+    Toolkit.getDefaultToolkit().addAWTEventListener(tagClickLocatorListener, AWTEvent.MOUSE_EVENT_MASK)
+    anchor.putClientProperty(CLICK_LOCATOR_KEY, tagClickLocatorListener)
+    showStatus("📍 Locator: ON — click a TAG on a node to locate it")
+}
+
+// ============================================================
+
+// Find node by content
+DefaultMutableTreeNode findNodeByContent(DefaultMutableTreeNode node, String qualified) {
+    if (node == null) return null
+    
+    def userObj = node.getUserObject()
+    if (userObj instanceof TagRow) {
+        if (qualified.equals(userObj.qualifiedName)) {
+            return node
+        }
+    }
+    
+    for (int i = 0; i < node.getChildCount(); i++) {
+        def child = node.getChildAt(i)
+        if (child instanceof DefaultMutableTreeNode) {
+            def result = findNodeByContent(child, qualified)
+            if (result != null) return result
+        }
+    }
+    return null
+}
+
+void revealTagInTree(String qualifiedContent) {
+    if (tagTree == null || treeRootNode == null) {
+        showStatus("📍 Tag tree not available")
+        return
+    }
+    
+    clearFilterIfActive()
+    
+    def targetNode = findNodeByContent(treeRootNode, qualifiedContent)
+    
+    if (targetNode == null) {
+        showStatus("📍 Tag '${qualifiedContent}' not found in tree")
+        return
+    }
+    
+    TreePath path = new TreePath(targetNode.getPath())
+    if (path.getParentPath() != null) {
+        tagTree.expandPath(path.getParentPath())
+    }
+    tagTree.setSelectionPath(path)
+    tagTree.scrollPathToVisible(path)
+    showStatus("📍 Located: ${qualifiedContent}")
+}
+
+// Clear filter
+void clearFilterIfActive() {
+    if (filterField != null && !filterField.getText().trim().isEmpty()) {
+        filterField.setText("")
+        filterText = ""
+        applyFilterText()
+    }
+    if (tagTree != null) {
+        try {
+            tagTree.setFilter(null)
+        } catch (Throwable ignore) {}
+    }
+}
+
+JRootPane findMainRootPane() {
+    for (Window w : Window.getWindows()) {
+        if (w.isShowing() && w instanceof JFrame) {
+            return ((JFrame) w).getRootPane()
+        }
+    }
+    return null
+}
+
+/*
+ ============================================================================
+ End of Utilities
+ ============================================================================
+*/
+
