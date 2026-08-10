@@ -1,6 +1,6 @@
 // @ExecutionModes({ON_SINGLE_NODE="/main_menu/aaa1386"})
 // rename_tab_no_repeat.groovy
-//🧩↗️ ♀️♻️ ✳️🪴آیکن های رنگی
+//🧩↗️ ♀️♻️ ✳️🪴 آیکن های رنگی
 // تغییر داده شده: اگر تب آیکون سبز دارد و متن ریشه با تب مطابق نیست، تب هم‌سان با ریشه می‌شود.
 
 import org.freeplane.features.mode.Controller
