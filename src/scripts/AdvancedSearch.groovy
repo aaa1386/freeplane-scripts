@@ -2819,7 +2819,7 @@ class SimpleMapCrawler {
             closeBtn.setToolTipText("Close MapCrawler")
             closeBtn.addActionListener({ closePanel() })
             
-            JButton minimizeBtn = new JButton("_")
+            JButton minimizeBtn = new JButton("-")
             minimizeBtn.setFont(minimizeBtn.getFont().deriveFont(Font.BOLD, 27f))
             minimizeBtn.setToolTipText("Minimize/Collapse panel")
             minimizeBtn.addActionListener({ toggleExpandCollapse() })
