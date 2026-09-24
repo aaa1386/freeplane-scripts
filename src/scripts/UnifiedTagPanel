@@ -21,7 +21,7 @@ The ⚡ Add Child (Fast) option is especially useful for large maps with many no
 // (at your option) any later version.
 
 
-// @ExecutionModes({ON_SINGLE_NODE="/menu_bar/euu/tags"})
+// @ExecutionModes({ON_SINGLE_NODE="/menu_bar/aaa/tags"})
 
 
 /***************************************************************************
@@ -193,7 +193,7 @@ import java.util.List
 @Field boolean isMergePanelOpen = false
 @Field int selectionStep = 1
 @Field String panelTextFontName = "Dialog"
-@Field int panelTextFontSize = 25
+@Field int panelTextFontSize = 28
 
 @Field int retractedWidthFactor = 20
 @Field int expandedWidthFactor = 4
@@ -347,7 +347,10 @@ import java.util.List
 @Field JScrollPane treeScrollPane
 @Field JLabel statusLabel
 @Field JButton wideButton
-
+@Field JButton restoreButton = null
+@Field boolean panelMinimized = false
+@Field final String RESTORE_BUTTON_KEY = "UnifiedTagPanelRestoreButton"
+@Field final int RESTORE_BUTTON_SIZE = 65
 @Field JButton filterModeButton
 @Field DefaultCellEditor treeCellEditor
 @Field JTextField renameEditorField
@@ -471,7 +474,8 @@ class WrapLayout extends FlowLayout {
             int rowWidth = 0
             int rowHeight = 0
 
-            for (int i = 0; i < target.getComponentCount(); i++) {
+            // For right-to-left, iterate from last to first
+            for (int i = target.getComponentCount() - 1; i >= 0; i--) {
                 Component member = target.getComponent(i)
                 if (!member.isVisible()) continue
                 Dimension size = preferred ? member.getPreferredSize() : member.getMinimumSize()
@@ -529,7 +533,7 @@ class PanelViewChangeRelay implements IMapViewChangeListener {
 boundMapView = Controller.currentController.mapViewManager.mapView as MapView
 if (boundMapView == null) return
 boundScrollPane = SwingUtilities.getAncestorOfClass(MapViewScrollPane, boundMapView) as MapViewScrollPane
-if (boundScrollPane == null) return   // view not anchored yet (mid map-switch); relaunch
+if (boundScrollPane == null) return
 overlayHost = resolveOverlayHost()
 
 if (hidePanelIfOpen()) return
@@ -537,6 +541,26 @@ if (hidePanelIfOpen()) return
 // closer registered BEFORE any external listener exists — every listener below is
 // covered even if this run dies midway (the leak lesson from UtilityPanels)
 boundScrollPane.putClientProperty(CLOSE_HANDLE_KEY, { -> closePanel() })
+
+pickGlyphs()
+boundScrollPane.putClientProperty(CLOSE_HANDLE_KEY, { -> closePanel() })
+
+// ⬇⬇⬇ این بلاک رو اضافه کن
+// اگه دکمه شناور از اجرای قبلی مونده و پنل جدید باز میشه، پاکش کن
+try {
+    JFrame frame = findMainFrame()
+    if (frame != null) {
+        JLayeredPane lp = frame.getRootPane().getLayeredPane()
+        Object oldBtn = lp?.getClientProperty(RESTORE_BUTTON_KEY)
+        if (oldBtn instanceof JButton) {
+            lp.remove((JButton) oldBtn)
+            lp.putClientProperty(RESTORE_BUTTON_KEY, null)
+            lp.revalidate()
+            lp.repaint()
+        }
+    }
+} catch (Throwable ignored) {}
+// ⬆⬆⬆ تا اینجا
 
 pickGlyphs()
 
@@ -615,7 +639,7 @@ void restoreViewState() {
     // everything" branch, even when the user had collapsed the whole tree
     firstBuildDone = true
 
-    hideUnusedTags = state.hideUnused as boolean
+    hideUnusedTags = state.hideUnused as boolean    
     if (state.wide as boolean) toggleWideMode()
 
     String text = String.valueOf(state.filter ?: "")
@@ -758,6 +782,24 @@ void closePanel() {
 
     overlayHost.revalidate()
     overlayHost.repaint()
+    // حذف دکمه شناور اگر وجود داره
+    try {
+        JFrame frame = findMainFrame()
+        if (frame != null) {
+            JLayeredPane lp = frame.getRootPane().getLayeredPane()
+            if (lp != null) {
+                Object btn = lp.getClientProperty(RESTORE_BUTTON_KEY)
+                if (btn instanceof JButton) {
+                    lp.remove((JButton) btn)
+                    lp.putClientProperty(RESTORE_BUTTON_KEY, null)
+                    lp.revalidate()
+                    lp.repaint()
+                }
+            }
+        }
+        restoreButton = null
+        panelMinimized = false
+    } catch (Throwable ignored) {}
     boundMapView.requestFocusInWindow()
 }
 
@@ -984,7 +1026,14 @@ JPanel createTitleBar() {
     title.setFont(new Font(panelTextFontName, Font.BOLD, panelTextFontSize - 2))
     title.setForeground(barForeground)
 
+    // ===== دکمه minimize (─) =====
+    JButton minimizeButton = createBarButton("─", barForeground, "Minimize the panel",
+            { minimizePanelToFloatingButton() })
+
+    // ===== دکمه wide (« / ») =====
     wideButton = createBarButton(wideOffSymbol, barForeground, wideTooltip(), { toggleWideMode() })
+
+    // ===== دکمه close (✕) =====
     JButton closeButton = createBarButton(closeButtonSymbol, barForeground, "Close the panel", { closePanel() })
     closeButton.addMouseListener(new MouseAdapter() {
         @Override
@@ -994,9 +1043,11 @@ JPanel createTitleBar() {
         void mouseExited(MouseEvent e) { closeButton.setForeground(barForeground) }
     })
 
+    // ===== ترتیب دکمه‌ها در نوار عنوان =====
     JPanel barButtons = transparentPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0))
-    barButtons.add(wideButton)
-    barButtons.add(closeButton)
+    barButtons.add(minimizeButton)   // ← اول: minimize
+    barButtons.add(wideButton)       // ← دوم: wide
+    barButtons.add(closeButton)      // ← آخر: close
 
     titleBar.add(title, BorderLayout.CENTER)
     titleBar.add(barButtons, BorderLayout.EAST)
@@ -1112,7 +1163,7 @@ JPanel createFilterBox() {
     bindKey(filterField, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, 0,
             "previousTagRow", { moveTreeSelection(-1) })
     
-    // 2. کلیدهای Ctrl+Up/Down (همین کار را انجام میدهند)
+    // 2. کلیدهای Ctrl+Up/Down (همین کار را انجام می‌دهند)
     bindKey(filterField, JComponent.WHEN_FOCUSED, KeyEvent.VK_DOWN, InputEvent.CTRL_DOWN_MASK,
             "filterSearchNext", { moveTreeSelection(1) })
     bindKey(filterField, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK,
@@ -1203,8 +1254,7 @@ JPanel createFilterBox() {
     filterModeButton.addActionListener({ ActionEvent e -> applyFilterHides(!isFilterHides()) } as ActionListener)
 
     // Place buttons
-       
-    JPanel buttons = transparentPanel(new GridLayout(1, 2, 0, 0))
+    JPanel buttons = transparentPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0))
     buttons.add(filterModeButton)
     buttons.add(clearButton)
 
@@ -1358,7 +1408,7 @@ JPanel createFavoritesStrip() {
     favoritesStrip.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, panelBorderColor()))
     favoritesStrip.setVisible(false)
     // Only setComponentOrientation is sufficient
-favoritesStrip.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+    favoritesStrip.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
     
     favoritesStrip.setTransferHandler(new TransferHandler() {
         @Override
@@ -1576,7 +1626,7 @@ JComponent createTreeArea() {
     tagTree.setToggleClickCount(0)
     tagTree.setCellRenderer(createTagRenderer())
 
-    tagTree.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+    tagTree.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
 
     renameEditorField = new JTextField()
     renameEditorField.setFont(itemFont())
@@ -1646,7 +1696,7 @@ JComponent createTreeArea() {
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK,
             "tagDemote", { moveSelectedTag('demote') })
 
-    // Hover on tags (select only, without changing focus)
+    // ===== Hover روی تگ‌ها (انتخاب + فوکوس خودکار) =====
     tagTree.addMouseMotionListener(new MouseMotionAdapter() {
         @Override
         void mouseMoved(MouseEvent e) {
@@ -1728,7 +1778,7 @@ JComponent createTreeArea() {
     treeScrollPane.setOpaque(false)
     treeScrollPane.getViewport().setOpaque(false)
     treeScrollPane.setBorder(BorderFactory.createEmptyBorder())
-treeScrollPane.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
+    treeScrollPane.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
 
     // ===== MouseListener برای اسکرول پن (فوکوس خودکار هنگام ورود ماوس) =====
     treeScrollPane.addMouseListener(new MouseAdapter() {
@@ -1768,7 +1818,6 @@ treeScrollPane.setComponentOrientation(ComponentOrientation.LEFT_TO_RIGHT)
 
     return treeScrollPane
 }
-
 
 /*
  ============================================================================
@@ -2097,8 +2146,9 @@ void selectRowByQn(String qn) {
 }
 
 void moveTreeSelection(int delta) {
+    // ===== اعمال فیلتر قبل از پیمایش =====
     applyFilterText()
-
+    
     int rows = tagTree.getRowCount()
     if (rows == 0) return
 
@@ -3399,6 +3449,10 @@ void showOptionsDialog() {
     footnote.setFont(footnote.getFont().deriveFont((float) (panelTextFontSize - 3)))
     content.add(leftAligned(footnote))
 
+   
+
+
+
     JButton closeButton = new JButton("Close")
     closeButton.addActionListener({ ActionEvent e -> dialog.dispose() } as ActionListener)
     JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0))
@@ -4568,7 +4622,168 @@ char foldChar(char ch) {
 }
 
 
+// ============================================================
+// Floating Restore Button for Tag Panel
+// ============================================================
 
+void installFloatingRestoreButton() {
+    if (restoreButton != null && restoreButton.isDisplayable()) return
+    JFrame frame = findMainFrame()
+    if (frame == null) return
+    JLayeredPane layeredPane = frame.getRootPane().getLayeredPane()
+    if (layeredPane == null) return
+
+    // اگه دکمه قدیمی در layeredPane مونده، دوباره استفاده کن
+    Object existing = layeredPane.getClientProperty(RESTORE_BUTTON_KEY)
+    if (existing instanceof JButton && ((JButton) existing).isDisplayable()) {
+        restoreButton = (JButton) existing
+        return
+    }
+
+    final Color NORMAL_BG = new Color(230, 150, 40)   // نارنجی روشن (T = Tags)
+    final Color HOVER_BG  = new Color(180, 100, 10)   // نارنجی تیره‌تر موقع هاور
+    final int SIZE = RESTORE_BUTTON_SIZE
+
+    restoreButton = new JButton("T")
+    restoreButton.setFocusable(false)
+    restoreButton.setPreferredSize(new Dimension(SIZE, SIZE))
+    restoreButton.setMinimumSize(new Dimension(SIZE, SIZE))
+    restoreButton.setMaximumSize(new Dimension(SIZE, SIZE))
+    restoreButton.setBorderPainted(false)
+    restoreButton.setFocusPainted(false)
+    restoreButton.setContentAreaFilled(true)
+    restoreButton.setOpaque(true)
+    restoreButton.setFont(new Font("Arial", Font.BOLD, 40))
+    restoreButton.setForeground(Color.WHITE)
+    restoreButton.setBackground(NORMAL_BG)
+    restoreButton.setHorizontalAlignment(SwingConstants.CENTER)
+    restoreButton.setVerticalAlignment(SwingConstants.CENTER)
+    restoreButton.setToolTipText("Restore Tags Panel")
+    restoreButton.setVisible(false)
+
+    restoreButton.addMouseListener(new MouseAdapter() {
+        @Override void mouseEntered(MouseEvent e) {
+            restoreButton.setBackground(HOVER_BG); restoreButton.repaint()
+        }
+        @Override void mouseExited(MouseEvent e) {
+            restoreButton.setBackground(NORMAL_BG); restoreButton.repaint()
+        }
+    })
+
+    restoreButton.addActionListener({
+        restorePanelFromFloatingButton()
+    } as ActionListener)
+
+    // راست‌کلیک → منو با گزینه Close (حذف واقعی)
+    JPopupMenu popup = new JPopupMenu()
+    JMenuItem restoreItem = new JMenuItem("Restore")
+    restoreItem.addActionListener({ restorePanelFromFloatingButton() } as ActionListener)
+    popup.add(restoreItem)
+    popup.addSeparator()
+    JMenuItem closeItem = new JMenuItem("Close Panel")
+    closeItem.addActionListener({
+        hideFloatingRestoreButton()
+        closePanel()   // حذف واقعی
+    } as ActionListener)
+    popup.add(closeItem)
+
+    restoreButton.addMouseListener(new MouseAdapter() {
+        @Override void mousePressed(MouseEvent e) {
+            if (e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) {
+                popup.show(restoreButton, e.x, e.y)
+            }
+        }
+        @Override void mouseReleased(MouseEvent e) {
+            if (e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) {
+                popup.show(restoreButton, e.x, e.y)
+            }
+        }
+    })
+
+    layeredPane.add(restoreButton, JLayeredPane.POPUP_LAYER)
+    layeredPane.putClientProperty(RESTORE_BUTTON_KEY, restoreButton)
+    layeredPane.revalidate()
+    layeredPane.repaint()
+
+    // ⬇⬇⬇ به‌روزرسانی موقعیت دکمه هنگام تغییر اندازه یا جابه‌جایی پنجره ⬇⬇⬇
+    try {
+        frame.addComponentListener(new ComponentAdapter() {
+            @Override void componentResized(ComponentEvent e) {
+                SwingUtilities.invokeLater { positionFloatingRestoreButton() }
+            }
+            @Override void componentMoved(ComponentEvent e) {
+                SwingUtilities.invokeLater { positionFloatingRestoreButton() }
+            }
+        })
+    } catch (Throwable ignored) {}
+    // ⬆⬆⬆ تا اینجا ⬆⬆⬆
+}
+
+void positionFloatingRestoreButton() {
+    if (restoreButton == null) return
+    if (!panelMinimized) { restoreButton.setVisible(false); return }
+    JFrame frame = findMainFrame()
+    if (frame == null) return
+    JLayeredPane layeredPane = frame.getRootPane().getLayeredPane()
+    if (layeredPane == null) return
+    try {
+        // موقعیت: گوشه بالا-راست، ۲۰ پیکسل از لبه‌ی راست، ۱۰ از بالا
+        int x = layeredPane.getWidth() - RESTORE_BUTTON_SIZE - 430 //فاصله افقی از لبه سمت راست فریپلن
+        int y = 0
+        x = Math.max(0, x); y = Math.max(0, y)
+        restoreButton.setBounds(x, y, RESTORE_BUTTON_SIZE, RESTORE_BUTTON_SIZE)
+        restoreButton.setVisible(true)
+        restoreButton.moveToFront()
+        layeredPane.revalidate()
+        layeredPane.repaint()
+    } catch (Throwable ignored) {}
+}
+
+void showFloatingRestoreButton() {
+    if (restoreButton == null) installFloatingRestoreButton()
+    if (restoreButton == null) return
+    panelMinimized = true
+    positionFloatingRestoreButton()
+}
+
+void hideFloatingRestoreButton() {
+    panelMinimized = false
+    if (restoreButton != null) restoreButton.setVisible(false)
+}
+
+// ===== به جای closePanel، پنل رو فقط مخفی کن =====
+void minimizePanelToFloatingButton() {
+    if (tagPanel == null) return
+    // پنل رو مخفی کن
+    tagPanel.setVisible(false)
+    overlayHost.revalidate()
+    overlayHost.repaint()
+    // دکمه شناور رو نشون بده
+    showFloatingRestoreButton()
+    showStatus("Tags panel minimized — click the floating T to restore")
+}
+
+// ===== برگرداندن پنل از دکمه شناور =====
+void restorePanelFromFloatingButton() {
+    hideFloatingRestoreButton()
+    if (tagPanel != null && tagPanel.isDisplayable()) {
+        tagPanel.setVisible(true)
+        fitPanelBounds()
+        overlayHost.revalidate()
+        overlayHost.repaint()
+        if (filterField != null) filterField.requestFocusInWindow()
+    } else {
+        // پنل کاملاً حذف شده — دوباره اجرا کن
+        showStatus("Panel was closed. Please trigger the script again (menu/shortcut).")
+    }
+}
+
+JFrame findMainFrame() {
+    for (Window w : Window.getWindows()) {
+        if (w.isShowing() && w instanceof JFrame) return (JFrame) w
+    }
+    return null
+}
 
 // ============================================================
 // Tag Click Locator - Click on tag in the map
@@ -4696,4 +4911,3 @@ JRootPane findMainRootPane() {
  End of Utilities
  ============================================================================
 */
-
