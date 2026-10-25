@@ -4,6 +4,11 @@ ORIGINAL CODE BY: euu2021 (Github)
 SPDX-License-Identifier: GPL-2.0-or-later
 
 تغییرات
+V2.0
+تغییر عرض پنل وقتی که خودکار نمی باشد 
+v1.9
+اضافه کردن نوع قلم به تنظیمات
+
 V1.8
 اضافه کردن تنظیم فونت و ارتفاع ردیف ها
 تغییر رنگ نوار انتخاب 
@@ -231,16 +236,21 @@ import java.util.List
 @Field int selectionStep = 1
 @Field String panelTextFontName = "Dialog"
 @Field int panelTextFontSize = 28
+@Field int panelTextFontStyle = Font.PLAIN
 
 @Field final String FONT_NAME_KEY = "unifiedTagPanel.fontName"
 @Field final String FONT_SIZE_KEY = "unifiedTagPanel.fontSize"
+@Field final String FONT_STYLE_KEY = "unifiedTagPanel.fontStyle"
 // ارتفاع هر ردیف درخت (پیکسل). 0 = خودکار بر اساس محتوا
 @Field int rowHeightPx = 0
 @Field final String ROW_HEIGHT_KEY = "unifiedTagPanel.rowHeight"
 @Field int retractedWidthFactor = 20
 @Field int expandedWidthFactor = 4
 @Field int wideWidthPercent = 40
+@Field final String WIDE_WIDTH_KEY = "unifiedTagPanel.wideWidthPx"
 
+@Field int customWideWidthPx = 0
+@Field JPanel resizeGrip = null 
 @Field int retractDelayMs = 400
 @Field int refreshCoalesceMs = 150
 // Rebuilding the tree costs ~1 ms per row (MEASURED: ~9 ms for 9 rows, ~45 ms for 54),
@@ -905,7 +915,6 @@ void closePanel() {
     disposeOptionsDialog()
 
     clearMapFilter(false)
-
     detachGlobalListeners()
 
     if (viewportListener != null) boundScrollPane.viewport.removeComponentListener(viewportListener)
@@ -916,11 +925,18 @@ void closePanel() {
         reservedAreaSupplier = null
     }
 
+    // حذف پنل
     if (tagPanel != null) {
         overlayHost.remove(tagPanel)
         tagPanel = null
     }
-    // Remove Click Locator
+    // حذف grip
+    if (resizeGrip != null) {
+        overlayHost.remove(resizeGrip)
+        resizeGrip = null
+    }
+
+    // حذف Click Locator
     if (tagClickLocatorListener != null) {
         Toolkit.getDefaultToolkit().removeAWTEventListener(tagClickLocatorListener)
         tagClickLocatorListener = null
@@ -935,6 +951,7 @@ void closePanel() {
 
     overlayHost.revalidate()
     overlayHost.repaint()
+
     // حذف دکمه شناور اگر وجود داره
     try {
         JFrame frame = findMainFrame()
@@ -1046,6 +1063,7 @@ void followToView(Component newViewComponent) {
     if (reservedAreaSupplier != null) boundScrollPane.removeReservedAreaSupplier(reservedAreaSupplier)
     if (viewportListener != null) boundScrollPane.viewport.removeComponentListener(viewportListener)
     oldHost.remove(tagPanel)
+    if (resizeGrip != null) oldHost.remove(resizeGrip)
     boundScrollPane.putClientProperty(CLOSE_HANDLE_KEY, null)
     boundScrollPane.putClientProperty(SUPPLIER_KEY, null)
 
@@ -1055,6 +1073,10 @@ void followToView(Component newViewComponent) {
 
     overlayHost.add(tagPanel)
     overlayHost.setComponentZOrder(tagPanel, 0)
+    if (resizeGrip != null) {
+        overlayHost.add(resizeGrip)
+        overlayHost.setComponentZOrder(resizeGrip, 0)
+    }
     if (reservedAreaSupplier != null) {
         boundScrollPane.addViewportReservedAreaSupplier(reservedAreaSupplier)
         boundScrollPane.putClientProperty(SUPPLIER_KEY, reservedAreaSupplier)
@@ -1140,7 +1162,7 @@ void createTagPanel() {
 
     overlayHost.add(tagPanel)
     overlayHost.setComponentZOrder(tagPanel, 0)
-
+     createResizeGrip()
     reservedAreaSupplier = { ->
         tagPanel != null && tagPanel.isVisible() ? boundsInScrollPane(tagPanel) : MapViewScrollPane.EMPTY_RECTANGLE
     } as MapViewScrollPane.ViewportReservedAreaSupplier
@@ -1171,7 +1193,53 @@ void createTagPanel() {
     overlayHost.repaint()
     filterField.requestFocusInWindow()
 }
+void createResizeGrip() {
+    resizeGrip = new JPanel()
+    resizeGrip.setName("UnifiedTagPanelResizeGrip")
+    resizeGrip.setOpaque(false)
+    resizeGrip.setCursor(Cursor.getPredefinedCursor(Cursor.W_RESIZE_CURSOR))
+    resizeGrip.setToolTipText("Drag to resize the panel (wide mode only)")
+    resizeGrip.setVisible(false)
 
+    final int[] dragStartX = [0]
+    final int[] dragStartWidth = [0]
+    final boolean[] dragging = [false]
+
+    resizeGrip.addMouseListener(new MouseAdapter() {
+        @Override
+        void mousePressed(MouseEvent e) {
+            if (!wideMode) return
+            dragStartX[0] = e.getXOnScreen()
+            dragStartWidth[0] = tagPanel.getWidth()
+            dragging[0] = true
+        }
+
+        @Override
+        void mouseReleased(MouseEvent e) {
+            if (!dragging[0]) return
+            dragging[0] = false
+            saveWideWidthPx(tagPanel.getWidth())
+            showStatus("Panel width saved: " + tagPanel.getWidth() + " px")
+        }
+    })
+
+    resizeGrip.addMouseMotionListener(new MouseMotionAdapter() {
+        @Override
+        void mouseDragged(MouseEvent e) {
+            if (!wideMode || !dragging[0]) return
+            // پنل روی لبه راست لنگر انداخته، پس کشیدن به چپ عرض را زیاد می‌کند
+            int delta = dragStartX[0] - e.getXOnScreen()
+            int newWidth = dragStartWidth[0] + delta
+            int maxWidth = (int) (boundScrollPane.getViewport().getWidth() * 0.85)
+            newWidth = Math.max(120, Math.min(newWidth, maxWidth))
+            applyPanelBounds(newWidth)
+            showStatus("Width: " + newWidth + " px")
+        }
+    })
+
+    overlayHost.add(resizeGrip)
+    overlayHost.setComponentZOrder(resizeGrip, 0)
+}
 JPanel createTitleBar() {
     Color barForeground = barTextColor()
 
@@ -1251,6 +1319,9 @@ void toggleWideMode() {
     wideButton.setText(wideMode ? wideOnSymbol : wideOffSymbol)
     wideButton.setToolTipText(wideTooltip())
     fitPanelBounds()
+    if (resizeGrip != null) {
+        resizeGrip.setVisible(wideMode)
+    }
 }
 
 
@@ -2865,16 +2936,7 @@ void loadPanelPreferences() {
                 .getBooleanProperty(SHOW_USAGE_COUNTS_KEY, showUsageCounts)
     } catch (Throwable t) {
     }
-    rtlMode = isRtlMode()
-    rowHeightPx = loadRowHeight()
-
-    // فونت
-    try {
-        def rc = ResourceController.getResourceController()
-        panelTextFontName = rc.getProperty(FONT_NAME_KEY, panelTextFontName)
-        panelTextFontSize = Integer.parseInt(rc.getProperty(FONT_SIZE_KEY, String.valueOf(panelTextFontSize)))
-    } catch (Throwable t) { }
-    cachedItemFont = null   // فونت کش‌شده را پاک کن تا دوباره ساخته شود
+     rtlMode = isRtlMode()
 }
 
 boolean isCloseAfterInsert() {
@@ -3803,7 +3865,7 @@ void moveToUncategorized(TagRow row) {
         showStatus("Move failed: " + t.getMessage())
     }
 }
-// ساخت تگ جدید در Uncategorized و اعمال آن روی گره‌های انتخاب‌شده
+// ساخت تگ جدید در Uncategorized — فقط ایجاد، بدون اختصاص به گره
 void addNewUncategorizedTag() {
     String tagName = JOptionPane.showInputDialog(tagPanel,
             "Enter the new tag name (will be created in Uncategorized):",
@@ -3820,21 +3882,12 @@ void addNewUncategorizedTag() {
     Map<String, String> existing = colorByQualifiedName(state)
 
     if (existing.containsKey(tagName)) {
-        // تگ از قبل وجود دارد → فقط به گره‌ها اختصاص بده
-        int touched = 0
-        selectedMapNodes().each { nodeModel ->
-            def tags = ProxyFactory.createNode(nodeModel, null).getTags()
-            if (!tags.getTags().contains(tagName)) {
-                tags.add(tagName)
-                touched++
-            }
-        }
-        showStatus("Assigned existing tag '" + tagName + "' to " + touched + " node" + (touched == 1 ? "" : "s"))
-        updateAssignedMarks()
+        // تگ از قبل وجود دارد → فقط پیام بده، چیزی به گره اضافه نکن
+        showStatus("Tag '" + tagName + "' already exists in this map")
         return
     }
 
-    // ساخت تگ جدید در Uncategorized
+    // ساخت تگ جدید در Uncategorized (بدون اختصاص به گره)
     try {
         runInstruction(MapTagCategoryInstructionType.ADD_TAG,
                 [path: [tagName], targetLocation: MapTagTargetLocation.UNCATEGORIZED])
@@ -3854,18 +3907,7 @@ void addNewUncategorizedTag() {
         categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, instructions))
     } catch (Throwable ignored) {}
 
-    // اعمال به گره‌های انتخاب‌شده
-    int touched = 0
-    selectedMapNodes().each { nodeModel ->
-        def tags = ProxyFactory.createNode(nodeModel, null).getTags()
-        if (!tags.getTags().contains(tagName)) {
-            tags.add(tagName)
-            touched++
-        }
-    }
-
-    showStatus("Created '" + tagName + "' and assigned to " + touched + " node" + (touched == 1 ? "" : "s"))
-    updateAssignedMarks()
+    showStatus("Created '" + tagName + "' in Uncategorized (not assigned to any node)")
     refreshTree()
 }
 
@@ -4168,6 +4210,8 @@ void showContextMenu(MouseEvent e) {
     menu.add(menuItem("Assign to selected node(s)", { assignTagToSelection(row) }))
     menu.add(menuItem("Remove from selected node(s)", { removeTagFromSelection(row) }))
 
+    
+    menu.addSeparator()
     if (!row.uncategorized) {
         menu.add(menuItem("Add child tag  (Insert)", { addChildTag(row) }))
         menu.add(menuItem("⚡ Add Child Tag (Fast)", {
@@ -4175,7 +4219,6 @@ void showContextMenu(MouseEvent e) {
             openFastChildPanel()
         }))
     }
-    menu.addSeparator()
     menu.add(menuItem("➕ Add Tag (Uncategorized)", { addNewUncategorizedTag() }))
     menu.addSeparator()
     menu.add(isFavorite(row.qualifiedName)
@@ -4403,6 +4446,33 @@ void showOptionsDialog() {
     fontRow.add(fontSpinner)
     content.add(leftAligned(fontRow))
 
+
+    // Font Style
+    JPanel styleRow = transparentPanel(new FlowLayout(FlowLayout.LEFT, 6, 0))
+    styleRow.add(new JLabel("Style:"))
+    
+    JComboBox<String> styleCombo = new JComboBox<>(
+            ["Normal", "Bold", "Italic", "Bold Italic"] as String[])
+    styleCombo.setName("UnifiedTagPanelFontStyleCombo")
+    styleCombo.setPreferredSize(new Dimension(130, 28))
+    
+    int currentStyle = panelTextFontStyle
+    String currentStyleLabel = currentStyle == Font.BOLD ? "Bold"
+            : currentStyle == Font.ITALIC ? "Italic"
+            : (currentStyle == (Font.BOLD | Font.ITALIC)) ? "Bold Italic" : "Normal"
+    styleCombo.setSelectedItem(currentStyleLabel)
+    
+    styleCombo.addActionListener({ ActionEvent e ->
+        String sel = (String) styleCombo.getSelectedItem()
+        int style = sel == "Bold" ? Font.BOLD
+                : sel == "Italic" ? Font.ITALIC
+                : sel == "Bold Italic" ? (Font.BOLD | Font.ITALIC)
+                : Font.PLAIN
+        applyFontSettings(panelTextFontName, panelTextFontSize, style)
+    } as ActionListener)
+    
+    styleRow.add(styleCombo)
+    content.add(leftAligned(styleRow))
     // ===== Footnote =====
     content.add(Box.createVerticalStrut(10))
     JLabel footnote = new JLabel("<html><i>Colors apply to tags created in this panel.<br>"
@@ -5335,7 +5405,29 @@ int expandedWidth() {
 }
 
 int wideWidth() {
+    if (customWideWidthPx > 0) {
+        return Math.min(customWideWidthPx, (int) (boundScrollPane.getViewport().getWidth() * 0.85))
+    }
     return (int) (boundScrollPane.getViewport().getWidth() * wideWidthPercent / 100)
+}
+
+int loadWideWidthPx() {
+    try {
+        return ResourceController.getResourceController()
+                .getIntProperty(WIDE_WIDTH_KEY, 0)
+    } catch (Throwable t) {
+        return 0
+    }
+}
+
+void saveWideWidthPx(int px) {
+    customWideWidthPx = Math.max(120, px)
+    try {
+        ResourceController.getResourceController()
+                .setProperty(WIDE_WIDTH_KEY, customWideWidthPx)
+    } catch (Throwable t) {
+        showStatus("Could not save the panel width: " + t.getMessage())
+    }
 }
 
 int fittedHeight(int panelWidth) {
@@ -5414,12 +5506,28 @@ void applyPanelBounds(int width) {
     Rectangle viewportBounds = viewportBoundsInHost()
     int x = (viewportBounds.x as int) + (viewportBounds.width as int) - width
     int y = viewportBounds.y as int
-    if (tagPanel.getX() == x && tagPanel.getY() == y
-            && tagPanel.getWidth() == width && tagPanel.getHeight() == height) return
 
-    tagPanel.setBounds(x, y, width, height)
-    overlayHost.revalidate()
-    overlayHost.repaint()
+    boolean panelChanged = !(tagPanel.getX() == x && tagPanel.getY() == y
+            && tagPanel.getWidth() == width && tagPanel.getHeight() == height)
+    if (panelChanged) {
+        tagPanel.setBounds(x, y, width, height)
+    }
+
+    // grip روی لبه چپ پنل (فقط در حالت wide)
+    if (resizeGrip != null) {
+        if (wideMode) {
+            resizeGrip.setBounds(x - 3, y, 6, height)
+            resizeGrip.setVisible(true)
+            overlayHost.setComponentZOrder(resizeGrip, 0)
+        } else {
+            resizeGrip.setVisible(false)
+        }
+    }
+
+    if (panelChanged) {
+        overlayHost.revalidate()
+        overlayHost.repaint()
+    }
 }
 
 /*
@@ -5522,13 +5630,19 @@ void applyRowHeight(int px) {
     }
 }
 void applyFontSettings(String name, int size) {
+    applyFontSettings(name, size, panelTextFontStyle)
+}
+
+void applyFontSettings(String name, int size, int style) {
     panelTextFontName = name
     panelTextFontSize = Math.max(8, size)
+    panelTextFontStyle = style
     cachedItemFont = null
     try {
         def rc = ResourceController.getResourceController()
         rc.setProperty(FONT_NAME_KEY, panelTextFontName)
         rc.setProperty(FONT_SIZE_KEY, panelTextFontSize)
+        rc.setProperty(FONT_STYLE_KEY, panelTextFontStyle)
     } catch (Throwable t) {
         showStatus("Could not save the font: " + t.getMessage())
     }
@@ -5561,7 +5675,9 @@ JPanel transparentPanel(LayoutManager layout) {
 }
 
 Font itemFont() {
-    if (cachedItemFont == null) cachedItemFont = new Font(panelTextFontName, Font.PLAIN, panelTextFontSize)
+    if (cachedItemFont == null) {
+        cachedItemFont = new Font(panelTextFontName, panelTextFontStyle, panelTextFontSize)
+    }
     return cachedItemFont
 }
 
