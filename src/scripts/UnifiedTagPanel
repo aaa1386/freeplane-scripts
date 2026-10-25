@@ -4,6 +4,9 @@ ORIGINAL CODE BY: euu2021 (Github)
 SPDX-License-Identifier: GPL-2.0-or-later
 
 تغییرات
+V2.1
+حل مشکل ناپدید شدن متن ابتدای تگ هنگام هاور روی تگ
+تغییر رنگ و ضخامت نوار در حالت انتخاب گره
 V2.0
 تغییر عرض پنل وقتی که خودکار نمی باشد 
 v1.9
@@ -2630,21 +2633,22 @@ TreeCellRenderer createTagRenderer() {
 
             boolean armed = row.qualifiedName != null && row.qualifiedName.equals(armedDeleteQn)
             
-                if (isSelected) {
-                    Color selectionBorder = new Color(0xFF, 0x66, 0x00)   // نارنجی پررنگ، کاملاً مات
-                    tagLabel.setBorder(BorderFactory.createCompoundBorder(
-                            BorderFactory.createLineBorder(selectionBorder, 4),
-                            BorderFactory.createEmptyBorder(0, 8, 0, 8)))
-                    tagLabel.setBackground(blendColors(chip, new Color(0xFF, 0x66, 0x00), 0.10f))
-                } else if (armed) {
-                    tagLabel.setBorder(BorderFactory.createCompoundBorder(
-                            BorderFactory.createLineBorder(Color.RED, 2),
-                            BorderFactory.createEmptyBorder(1, 8, 1, 8)))
-                } else {
-                    tagLabel.setBorder(BorderFactory.createCompoundBorder(
-                            BorderFactory.createLineBorder(chip, 2),
-                            BorderFactory.createEmptyBorder(1, 8, 1, 8)))
-                }
+                        // Simplify: use a single Border for the entire row
+                        if (isSelected) {
+                            Color selectionBorder = new Color(0, 255, 0, 255)
+                            tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                                    BorderFactory.createLineBorder(selectionBorder, 5),
+                                    BorderFactory.createEmptyBorder(1, 8, 1, 8)))
+                            tagLabel.setBackground(blendColors(chip, new Color(0, 255, 0), 0.08f))
+                        } else if (armed) {
+                            tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                                    BorderFactory.createLineBorder(Color.RED, 2),
+                                    BorderFactory.createEmptyBorder(1, 8, 1, 8)))
+                        } else {
+                            tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                                    BorderFactory.createLineBorder(chip, 2),
+                                    BorderFactory.createEmptyBorder(1, 8, 1, 8)))
+                        }
             
             return tagLabel
         }
