@@ -3,6 +3,43 @@ ORIGINAL CODE BY: euu2021 (Github)
  Copyright (C) 2026  aaa1386 (Github) - based on euu2021's original work
 SPDX-License-Identifier: GPL-2.0-or-later
 
+تغییرات
+V1.8
+اضافه کردن تنظیم فونت و ارتفاع ردیف ها
+تغییر رنگ نوار انتخاب 
+
+v1.7
+RTL پشتیبانی
+
+v1.6
+حل مشکل ناپدید شدن متن ابتدای تگ هنگام هاور روی تگ
+v1.5
+ =====حذف و اضافه و تغییر مکان تگ ها گروهی 
+ - Shift+↑/↓ : افزودن/حذف تگ مجاور از انتخاب (toggle)
+ - Ctrl/Shift+Click : افزودن/حذف تگ از انتخاب (JTree مدیریت می‌کند)
+ - کلیک ساده روی تگ : تک‌انتخابی
+ - کلیک روی فضای خالی : پاک کردن انتخاب
+ - hover : هنگام انتخاب چندگانه یا Ctrl/Shift غیرفعال می‌شود؛ با بازگشت به تک‌تگ ریست می‌شود
+ - Alt+↑/↓/←/→ روی چند تگ : فقط اگر هم‌سطح و پیوسته باشند، کل گروه مثل یک تگ جابه‌جا می‌شود
+ - راست‌کلیک گروهی : Assign فقط اضافه می‌کند، Remove فقط حذف
+ 
+v14
+-حفظ دسته رنگ در میان  یک شاخه بزرگ : 
+ هنگام جابه‌جایی یک تگ که **فرزند دارد** (شاخه)، اگر والدش عوض شود، یک کادر هشدار نمایش داده می‌شود تا انتخاب کنید رنگ والد جدید اعمال شود یا رنگ قبلی حفظ شود. با فعال‌کردن چک‌باکس «Don't ask again»، انتخاب شما تا زمان reload شدن اسکریپت بدون پرسش اعمال می‌شود. تگ‌های **بدون فرزند** طبق منطق قبلی و بدون پرسش، رنگ والد را می‌پذیرند. 
+
+v1.3
+-رفع اشکال : اضافه کردن تگ به گره هنگام دراگ دراپ از بین درخت
+
+v1.2
+- اضافه کردن گزینه به منو کلیک راست ➕ Add Tag (Uncategorized)
+
+v1.1
+-هم‌ترازسازی خودکار رنگ تگ هنگام جابه‌جایی
+-هنگام جابجایی از غیر  دسته بندی به دسته بندی آبی رنگ میشه 
+-تگ والد دار اگر بدون والد شود به سطح اول بیاید رنگ خود را حفظ می کند
+-درست کردن عملکرد آلت راست و چپ با زبان راست به چپ
+
+V1.0
 Added:
 1-Add 🔀 Merge/Assign option, 
 2-Add ⚡ Add Child Tag (Fast)option,
@@ -195,6 +232,11 @@ import java.util.List
 @Field String panelTextFontName = "Dialog"
 @Field int panelTextFontSize = 28
 
+@Field final String FONT_NAME_KEY = "unifiedTagPanel.fontName"
+@Field final String FONT_SIZE_KEY = "unifiedTagPanel.fontSize"
+// ارتفاع هر ردیف درخت (پیکسل). 0 = خودکار بر اساس محتوا
+@Field int rowHeightPx = 0
+@Field final String ROW_HEIGHT_KEY = "unifiedTagPanel.rowHeight"
 @Field int retractedWidthFactor = 20
 @Field int expandedWidthFactor = 4
 @Field int wideWidthPercent = 40
@@ -422,7 +464,15 @@ import java.util.List
 @Field String markSome = "◐"
 @Field String favoriteSymbol = "★"
 
-
+@Field String draggedTagQn = null
+ @Field boolean hoverSuppressed = false
+// وضعیت کادر هشدار «تغییر رنگ شاخه هنگام جابه‌جایی»
+@Field Boolean branchRecolorPreference = null   // null = هر بار بپرس، true = همیشه رنگ والد، false = همیشه حفظ رنگ قبلی
+// جهت نمایش درخت و عملکرد Alt+←/→
+// true  = راست‌به‌چپ (پیش‌فرض فعلی)
+// false = چپ‌به‌راست
+@Field boolean rtlMode = true
+@Field final String RTL_MODE_KEY = "unifiedTagPanel.rtlMode"
 // Row payload for the tree. Top-level class: keep it dumb (no access to script methods).
 class TagRow {
     String name            // leaf segment (or header text for synthetic rows)
@@ -529,6 +579,45 @@ class PanelViewChangeRelay implements IMapViewChangeListener {
 /*
  ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Main code ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
 */
+boolean isRtlMode() {
+    try {
+        return ResourceController.getResourceController()
+                .getBooleanProperty(RTL_MODE_KEY, true)
+    } catch (Throwable t) {
+        return true
+    }
+}
+
+void applyRtlMode(boolean rtl) {
+    try {
+        ResourceController.getResourceController().setProperty(RTL_MODE_KEY, rtl)
+    } catch (Throwable t) {
+        showStatus("Could not save the option: " + t.getMessage())
+    }
+    rtlMode = rtl
+
+    if (tagTree != null) {
+        tagTree.setComponentOrientation(
+                rtl ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT)
+        tagTree.repaint()
+    }
+    if (favoritesStrip != null) {
+        treeScrollPane.setComponentOrientation(
+                rtlMode ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT)
+        favoritesStrip.revalidate()
+        favoritesStrip.repaint()
+    }
+    if (treeScrollPane != null) {
+        treeScrollPane.setComponentOrientation(
+                rtl ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT)
+        treeScrollPane.revalidate()
+        treeScrollPane.repaint()
+    }
+
+    showStatus(rtl ? "Right-to-left layout" : "Left-to-right layout")
+}
+
+
 
 boundMapView = Controller.currentController.mapViewManager.mapView as MapView
 if (boundMapView == null) return
@@ -580,6 +669,70 @@ restoreViewState()
 startListeners()
 refreshTree()
 updateAssignedMarks()
+
+// ⬇⬇⬇ این بلاک را اینجا اضافه کنید ⬇⬇⬇
+// اضافه کردن TransferHandler به MapView برای پذیرش Drop تگ از درخت
+boundMapView.setTransferHandler(new TransferHandler() {
+    @Override
+    boolean canImport(TransferHandler.TransferSupport support) {
+        return draggedTagQn != null && support.isDataFlavorSupported(tagDndFlavor)
+    }
+    
+    @Override
+    boolean importData(TransferHandler.TransferSupport support) {
+        if (!canImport(support)) return false
+        try {
+            String qn = String.valueOf(support.getTransferable().getTransferData(tagDndFlavor))
+            
+            // پیدا کردن گره‌ای که Drop روی آن انجام شده
+            Point dropPoint = support.getDropLocation() instanceof TransferHandler.DropLocation ?
+                    ((TransferHandler.DropLocation) support.getDropLocation()).getDropPoint() : null
+            
+            if (dropPoint == null) return false
+            
+            // پیدا کردن گره زیر ماوس در MapView
+            Component comp = boundMapView.getComponentAt(dropPoint)
+            if (comp == null) return false
+            
+            // اگر component یک MapViewNode یا مشابه بود، گره مربوطه را پیدا کن
+            NodeModel targetNode = null
+            try {
+                // تلاش برای پیدا کردن گره از component
+                def method = comp.getClass().getMethod("getNode")
+                if (method != null) {
+                    def node = method.invoke(comp)
+                    if (node instanceof NodeModel) {
+                        targetNode = (NodeModel) node
+                    }
+                }
+            } catch (Throwable ignored) {}
+            
+            if (targetNode == null) {
+                // اگر گره پیدا نشد، به گره(های) انتخاب‌شده اعمال کن
+                selectedMapNodes().each { nodeModel ->
+                    def tags = ProxyFactory.createNode(nodeModel, null).getTags()
+                    if (!tags.getTags().contains(qn)) {
+                        tags.add(qn)
+                    }
+                }
+            } else {
+                // اعمال به گره زیر ماوس
+                def tags = ProxyFactory.createNode(targetNode, null).getTags()
+                if (!tags.getTags().contains(qn)) {
+                    tags.add(qn)
+                }
+            }
+            
+            updateAssignedMarks()
+            refreshTree()
+            return true
+        } catch (Throwable t) {
+            showStatus("Drop failed: " + t.getMessage())
+            return false
+        }
+    }
+})
+
 
 return
 
@@ -973,10 +1126,15 @@ void createTagPanel() {
             KeyEvent.VK_UP, InputEvent.ALT_DOWN_MASK, "tagMoveUp", { moveSelectedTag('up') })
     bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
             KeyEvent.VK_DOWN, InputEvent.ALT_DOWN_MASK, "tagMoveDown", { moveSelectedTag('down') })
+    // چپ/راست وابسته به rtlMode:
+    //   RTL: ← demote / → promote
+    //   LTR: ← promote / → demote
     bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
-            KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK, "tagPromote", { moveSelectedTag('promote') })
+            KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK, "tagDemote",
+            { moveSelectedTag(rtlMode ? 'demote' : 'promote') })
     bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
-            KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK, "tagDemote", { moveSelectedTag('demote') })
+            KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK, "tagPromote",
+            { moveSelectedTag(rtlMode ? 'promote' : 'demote') })
 
     tagPanel.setBounds(0, 0, retractedWidth(), 10)
 
@@ -1620,13 +1778,23 @@ JComponent createTreeArea() {
     tagTree.setRootVisible(false)
     tagTree.setShowsRootHandles(true)
     tagTree.setOpaque(false)
-    tagTree.setRowHeight(0)
+    tagTree.setRowHeight(rowHeightPx)
     tagTree.setFont(itemFont())
-    tagTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION)
+    tagTree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION)
+        // اگر تعداد انتخاب به ۱ یا کمتر رسید، حالت suppress را ریست کن
+        tagTree.addTreeSelectionListener(new javax.swing.event.TreeSelectionListener() {
+            @Override
+            void valueChanged(javax.swing.event.TreeSelectionEvent e) {
+                if (tagTree.getSelectionCount() <= 1) {
+                    hoverSuppressed = false
+                }
+            }
+        })
     tagTree.setToggleClickCount(0)
     tagTree.setCellRenderer(createTagRenderer())
 
-    tagTree.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+    tagTree.setComponentOrientation(
+        rtlMode ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT)
 
     renameEditorField = new JTextField()
     renameEditorField.setFont(itemFont())
@@ -1679,42 +1847,73 @@ JComponent createTreeArea() {
                     tagTree.scrollRowToVisible(prev)
                 }
             })
-    
+
     // ===== کلیدهای Ctrl+Up/Down برای پیمایش نتایج جستجو (وقتی درخت فوکوس دارد) =====
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_DOWN, InputEvent.CTRL_DOWN_MASK,
             "filterSearchNext", { moveTreeSelection(1) })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK,
             "filterSearchPrevious", { moveTreeSelection(-1) })
 
-    // Alt+directions for moving
+    // Alt+directions for moving (RTL: left = demote/in, right = promote/out)
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, InputEvent.ALT_DOWN_MASK,
             "tagMoveUp", { moveSelectedTag('up') })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_DOWN, InputEvent.ALT_DOWN_MASK,
             "tagMoveDown", { moveSelectedTag('down') })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK,
-            "tagPromote", { moveSelectedTag('promote') })
+            "tagDemote", { moveSelectedTag(rtlMode ? 'demote' : 'promote') })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK,
-            "tagDemote", { moveSelectedTag('demote') })
+            "tagPromote", { moveSelectedTag(rtlMode ? 'promote' : 'demote') })
 
-    // ===== Hover روی تگ‌ها (انتخاب + فوکوس خودکار) =====
-    tagTree.addMouseMotionListener(new MouseMotionAdapter() {
-        @Override
-        void mouseMoved(MouseEvent e) {
-            TreePath path = tagTree.getPathForLocation(e.getX(), e.getY())
-            if (path != null) {
-                TagRow row = rowOf(path)
-                if (row != null && !row.synthetic) {
-                    tagTree.setSelectionPath(path)
-                    // ===== فوکوس خودکار روی جدول =====
-                    if (!tagTree.hasFocus()) {
-                        tagTree.requestFocusInWindow()
+    // ===== Shift+↑/↓ برای گسترش انتخاب =====
+    // WHEN_FOCUSED: وقتی خود JTree فوکوس دارد
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_DOWN, InputEvent.SHIFT_DOWN_MASK,
+            "treeAddSelectionDown", { extendSelection(1) })
+    bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, InputEvent.SHIFT_DOWN_MASK,
+            "treeAddSelectionUp", { extendSelection(-1) })
+
+    // WHEN_ANCESTOR_OF_FOCUSED_COMPONENT: بایندهای پیش‌فرض JTree اینجا هستند — بازنویسی می‌شوند
+    bindKey(tagTree, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
+            KeyEvent.VK_DOWN, InputEvent.SHIFT_DOWN_MASK,
+            "treeAddSelectionDownAncestor", { extendSelection(1) })
+    bindKey(tagTree, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
+            KeyEvent.VK_UP, InputEvent.SHIFT_DOWN_MASK,
+            "treeAddSelectionUpAncestor", { extendSelection(-1) })
+
+    // ===== Hover روی تگ‌إٰها (انتخاب + فوکوس خودکار) =====
+        // ===== Hover روی تگ‌ها =====
+            // ===== Hover روی تگ‌ها =====
+            tagTree.addMouseMotionListener(new MouseMotionAdapter() {
+                @Override
+                void mouseMoved(MouseEvent e) {
+                    // اگر تعداد انتخاب به ۱ یا کمتر رسید، حالت suppress را ریست کن
+                    if (tagTree.getSelectionCount() <= 1) {
+                        hoverSuppressed = false
+                    }
+        
+                    // اگر انتخاب چندگانه فعال است یا Ctrl/Shift فشرده، hover را غیرفعال کن
+                    if (hoverSuppressed) return
+                    if (e.isControlDown() || e.isShiftDown()) return
+                    if (tagTree.getSelectionCount() > 1) return
+                    if ((e.getModifiersEx() & (InputEvent.BUTTON1_DOWN_MASK |
+                                                InputEvent.BUTTON3_DOWN_MASK)) != 0) return
+        
+                    TreePath path = tagTree.getPathForLocation(e.getX(), e.getY())
+                    if (path != null) {
+                        TagRow row = rowOf(path)
+                        if (row != null && !row.synthetic) {
+                            tagTree.setSelectionPath(path)
+                            if (!tagTree.hasFocus()) {
+                                tagTree.requestFocusInWindow()
+                            }
+                        }
                     }
                 }
-            }
-        }
-    })
-
+            })
+    
+        // ===== کلیک چپ/راست =====
+            // ===== کلیک چپ/راست =====
     tagTree.addMouseListener(new MouseAdapter() {
+        @Override
         @Override
         void mousePressed(MouseEvent e) {
             if (e.isPopupTrigger()) {
@@ -1722,38 +1921,86 @@ JComponent createTreeArea() {
                 return
             }
             if (!SwingUtilities.isLeftMouseButton(e)) return
-            
+        
             TreePath path = tagTree.getPathForLocation(e.getX(), e.getY())
-            if (path == null) return
+        
+            // ===== کلیک روی فضای خالی → پاک کردن انتخاب =====
+            if (path == null) {
+                tagTree.clearSelection()
+                hoverSuppressed = false
+                dragStartPoint = null
+                return
+            }
+        
             TagRow row = rowOf(path)
-            if (row == null || row.synthetic) return
-            
-            tagTree.setSelectionPath(path)
-            
+            if (row == null || row.synthetic) {
+                // روی یک ردیف synthetic (مثل "tags" یا "uncategorized") کلیک شده
+                // → انتخاب را پاک کن
+                tagTree.clearSelection()
+                hoverSuppressed = false
+                dragStartPoint = null
+                return
+            }
+        
+            boolean modifierClick = e.isControlDown() || e.isShiftDown()
+            if (modifierClick) {
+                hoverSuppressed = true
+            } else {
+                hoverSuppressed = false
+                tagTree.setSelectionPath(path)
+            }
+        
+            dragStartPoint = e.getPoint()
+        
             if (isMergePanelOpen) {
                 selectTagFromTree()
                 return
             }
-            
-            toggleTagOnSelection(row)
-            
             if (fastWaitingForParent) {
                 selectFastParentTag()
+                return
             }
         }
-        
+
         @Override
         void mouseReleased(MouseEvent e) {
             if (e.isPopupTrigger()) {
                 showContextMenu(e)
+                return
+            }
+
+            if (dragStartPoint != null &&
+                    (Math.abs(e.getX() - dragStartPoint.x) > 5 ||
+                     Math.abs(e.getY() - dragStartPoint.y) > 5)) {
+                dragStartPoint = null
+                return
+            }
+            dragStartPoint = null
+
+            if (!SwingUtilities.isLeftMouseButton(e)) return
+
+            TreePath path = tagTree.getPathForLocation(e.getX(), e.getY())
+            if (path == null) return
+            TagRow row = rowOf(path)
+            if (row == null || row.synthetic) return
+
+            boolean modifierClick = e.isControlDown() || e.isShiftDown()
+
+            if (!isMergePanelOpen && !fastWaitingForParent && !modifierClick) {
+                toggleAllSelectedTagsOnSelection()
+            }
+
+            // بعد از هر تغییر انتخاب، اگر تعداد به ۱ رسید، hover را آزاد کن
+            if (tagTree.getSelectionCount() <= 1) {
+                hoverSuppressed = false
             }
         }
     })
 
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_ENTER, 0,
-            "toggleSelectedTag", { TagRow row = selectedRow(); if (row != null) toggleTagOnSelection(row) })
+            "toggleSelectedTag", { toggleAllSelectedTagsOnSelection() })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_SPACE, 0,
-            "toggleSelectedTagSpace", { TagRow row = selectedRow(); if (row != null) toggleTagOnSelection(row) })
+            "toggleSelectedTagSpace", { toggleAllSelectedTagsOnSelection() })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_F2, 0,
             "renameSelectedTag", { startRename() })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_INSERT, 0,
@@ -1784,12 +2031,11 @@ JComponent createTreeArea() {
     treeScrollPane.addMouseListener(new MouseAdapter() {
         @Override
         void mouseEntered(MouseEvent e) {
-            // ===== وقتی ماوس وارد اسکرول پن می‌شود، فوکوس به جدول =====
             if (tagTree != null && !tagTree.hasFocus()) {
                 tagTree.requestFocusInWindow()
             }
         }
-        
+
         @Override
         void mousePressed(MouseEvent e) {
             if (tagTree != null) {
@@ -1802,12 +2048,11 @@ JComponent createTreeArea() {
     treeScrollPane.getViewport().addMouseListener(new MouseAdapter() {
         @Override
         void mouseEntered(MouseEvent e) {
-            // ===== وقتی ماوس وارد ویوپورت می‌شود، فوکوس به جدول =====
             if (tagTree != null && !tagTree.hasFocus()) {
                 tagTree.requestFocusInWindow()
             }
         }
-        
+
         @Override
         void mousePressed(MouseEvent e) {
             if (tagTree != null) {
@@ -1818,7 +2063,6 @@ JComponent createTreeArea() {
 
     return treeScrollPane
 }
-
 /*
  ============================================================================
  Tree model / rendering
@@ -2118,7 +2362,18 @@ TagRow rowOf(TreePath path) {
 TagRow selectedRow() {
     return rowOf(tagTree != null ? tagTree.getSelectionPath() : null)
 }
-
+// همه‌ی TagRowهای انتخاب‌شده در درخت (به ترتیب نمایش)
+List<TagRow> selectedRows() {
+    List<TagRow> result = []
+    if (tagTree == null) return result
+    TreePath[] paths = tagTree.getSelectionPaths()
+    if (paths == null) return result
+    for (TreePath p : paths) {
+        TagRow row = rowOf(p)
+        if (row != null && !row.synthetic) result.add(row)
+    }
+    return result
+}
 DefaultMutableTreeNode findNodeByQn(DefaultMutableTreeNode from, String qn) {
     for (int i = 0; i < from.getChildCount(); i++) {
         DefaultMutableTreeNode child = (DefaultMutableTreeNode) from.getChildAt(i)
@@ -2304,22 +2559,21 @@ TreeCellRenderer createTagRenderer() {
 
             boolean armed = row.qualifiedName != null && row.qualifiedName.equals(armedDeleteQn)
             
-            // Simplify: use a single Border for the entire row
-            if (isSelected) {
-                Color selectionBorder = new Color(0, 180, 0, 200)
-                tagLabel.setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createLineBorder(selectionBorder, 3),
-                        BorderFactory.createEmptyBorder(2, 8, 2, 8)))
-                tagLabel.setBackground(blendColors(chip, new Color(0, 255, 0), 0.08f))
-            } else if (armed) {
-                tagLabel.setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createLineBorder(Color.RED, 2),
-                        BorderFactory.createEmptyBorder(1, 8, 1, 8)))
-            } else {
-                tagLabel.setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createLineBorder(chip, 2),
-                        BorderFactory.createEmptyBorder(1, 8, 1, 8)))
-            }
+                if (isSelected) {
+                    Color selectionBorder = new Color(0xFF, 0x66, 0x00)   // نارنجی پررنگ، کاملاً مات
+                    tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(selectionBorder, 4),
+                            BorderFactory.createEmptyBorder(0, 8, 0, 8)))
+                    tagLabel.setBackground(blendColors(chip, new Color(0xFF, 0x66, 0x00), 0.10f))
+                } else if (armed) {
+                    tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(Color.RED, 2),
+                            BorderFactory.createEmptyBorder(1, 8, 1, 8)))
+                } else {
+                    tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(chip, 2),
+                            BorderFactory.createEmptyBorder(1, 8, 1, 8)))
+                }
             
             return tagLabel
         }
@@ -2465,29 +2719,34 @@ void toggleTagOnSelection(TagRow row) {
     toggleTagQn(row.qualifiedName)
 }
 
-void toggleTagQn(String qn) {
-    if (qn == null || qn.isEmpty()) return
+void toggleAllSelectedTagsOnSelection() {
+    List<TagRow> rows = selectedRows()
+    if (rows.isEmpty()) return
     List<NodeModel> selected = selectedMapNodes()
     if (selected.isEmpty()) {
         showStatus("No node selected in the map")
         return
     }
-    boolean allHave = selected.every { tagsOf(it).contains(qn) }
-    int touched = 0
-    selected.each { nodeModel ->
-        def tags = ProxyFactory.createNode(nodeModel, null).getTags()
-        if (allHave) {
-            if (tags.remove(qn)) touched++
-        } else if (!tags.getTags().contains(qn)) {
-            tags.add(qn)
-            touched++
+
+    int totalTouched = 0
+    for (TagRow row : rows) {
+        boolean allHave = selected.every { tagsOf(it).contains(row.qualifiedName) }
+        int touched = 0
+        selected.each { nodeModel ->
+            def tags = ProxyFactory.createNode(nodeModel, null).getTags()
+            if (allHave) {
+                if (tags.remove(row.qualifiedName)) touched++
+            } else if (!tags.getTags().contains(row.qualifiedName)) {
+                tags.add(row.qualifiedName)
+                touched++
+            }
         }
+        totalTouched += touched
     }
-    showStatus((allHave ? "Removed '" : "Assigned '") + qn + (allHave ? "' from " : "' to ")
-            + touched + " node" + (touched == 1 ? "" : "s"))
+    showStatus("Toggled " + rows.size() + " tag(s) on " + selected.size() + " node(s)")
     updateAssignedMarks()
-    if (!allHave && rowByQn(qn) == null) scheduleRefresh()
-    if (!allHave) maybeCloseAfterInsert(touched)
+    scheduleRefresh()
+    maybeCloseAfterInsert(totalTouched)
 }
 
 void assignTagToSelection(TagRow row) {
@@ -2606,6 +2865,16 @@ void loadPanelPreferences() {
                 .getBooleanProperty(SHOW_USAGE_COUNTS_KEY, showUsageCounts)
     } catch (Throwable t) {
     }
+    rtlMode = isRtlMode()
+    rowHeightPx = loadRowHeight()
+
+    // فونت
+    try {
+        def rc = ResourceController.getResourceController()
+        panelTextFontName = rc.getProperty(FONT_NAME_KEY, panelTextFontName)
+        panelTextFontSize = Integer.parseInt(rc.getProperty(FONT_SIZE_KEY, String.valueOf(panelTextFontSize)))
+    } catch (Throwable t) { }
+    cachedItemFont = null   // فونت کش‌شده را پاک کن تا دوباره ساخته شود
 }
 
 boolean isCloseAfterInsert() {
@@ -2633,9 +2902,7 @@ void maybeCloseAfterInsert(int assignedCount) {
     closePanel()
 }
 
-/*
- ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Assigning (the Edit-Tags role) ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-*/
+
 
 
 /*
@@ -2736,6 +3003,11 @@ boolean createMissingSegments(String qualifiedText, boolean evenInDefaultMode) {
 String hexOf(Color color) {
     return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue())
 }
+// رنگ خاکستری برای تگ‌هایی که در شاخه categorized هستند ولی والد ندارند (سطح بالا)
+/*String topLevelTagColor(List<String> path) {
+    if (path == null || path.size() <= 1) return "#888888" // خاکستری
+    return null
+}*/
 
 List<List<String>> branchPaths(def state, List<String> rootPath) {
     List<List<String>> paths = [new ArrayList<String>(rootPath)]
@@ -2795,10 +3067,78 @@ void applyBranchColor(TagRow row, String colorSpec) {
     }
 }
 
-/*
- ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Colour policy (#2950) ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-*/
+String effectiveColorForPath(List<String> path, Map<String, String> existingColors) {
+    if (newTagColorMode() != "inherit") return null
+    if (path == null || path.isEmpty()) return null
+    String sep = separator()
+    String inherited = null
+    StringBuilder qualified = new StringBuilder()
+    for (int i = 0; i < path.size(); i++) {
+        if (i > 0) qualified.append(sep)
+        qualified.append(path.get(i))
+        String existing = existingColors.get(qualified.toString())
+        if (existing != null) inherited = existing
+    }
+    return inherited ?: chosenFixedColor() ?: newTagColorFallback
+}
+// رنگ مؤثر برای تگِ جابه‌جا‌شده: فقط از والدهای مسیر جدید ارث می‌برد،
+// نه از رنگ فعلی خود تگ (که همان رنگ قدیمی است و نباید مانع تغییر شود).
+String effectiveColorForMove(List<String> newPath, Map<String, String> existingColors) {
+    if (newTagColorMode() != "inherit") return null
+    if (newPath == null || newPath.size() < 1) return null
+    String sep = separator()
+    String inherited = null
+    StringBuilder qualified = new StringBuilder()
+    // فقط والدها: از i=0 تا i<newPath.size()-1 (خودِ تگ را رد می‌کنیم)
+    for (int i = 0; i < newPath.size() - 1; i++) {
+        if (i > 0) qualified.append(sep)
+        qualified.append(newPath.get(i))
+        String existing = existingColors.get(qualified.toString())
+        if (existing != null) inherited = existing
+    }
+    return inherited ?: chosenFixedColor() ?: newTagColorFallback
+}
+void alignColorAfterMove(List<String> newPath, boolean recurseChildren) {
+    if (newTagColorMode() != "inherit") return
+    if (newPath == null || newPath.isEmpty()) return
 
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        return
+    }
+
+    Map<String, String> existing = colorByQualifiedName(state)
+    String targetColor = effectiveColorForMove(newPath, existing)
+    if (targetColor == null) return
+
+    String currentColor = existing.get(newPath.join(separator()))
+    if (currentColor != null && currentColor.equalsIgnoreCase(targetColor)) return
+
+    try {
+        def categories = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.tagCategories
+        List instructions = []
+
+        if (!recurseChildren) {
+            instructions.add(new MapTagCategoryInstruction(MapTagCategoryInstructionType.SET_COLOR,
+                    new ArrayList<String>(newPath), null, null,
+                    MapTagTargetLocation.CATEGORIZED, null, targetColor, null))
+        } else {
+            List<List<String>> paths = branchPaths(state, newPath)
+            paths.each { List<String> p ->
+                instructions.add(new MapTagCategoryInstruction(MapTagCategoryInstructionType.SET_COLOR,
+                        p, null, null, MapTagTargetLocation.CATEGORIZED, null, targetColor, null))
+            }
+        }
+
+        if (!instructions.isEmpty()) {
+            categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, instructions))
+        }
+    } catch (Throwable t) {
+        showStatus("Color alignment after move failed: " + t.getMessage())
+    }
+}
 
 /*
  ↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Structure edits (the Manage-Categories role) ↓↓↓↓↓↓↓↓
@@ -2813,10 +3153,132 @@ def runInstruction(MapTagCategoryInstructionType type, Map args) {
             (String) args.color, null)
     categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, [instruction]))
 }
+void runMoveWithColor(MapTagCategoryInstructionType type, Map args, List<String> newPath, boolean recurseChildren) {
+    def mindMap = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap
+    def categories = mindMap.tagCategories
 
+    List instructions = []
+    instructions.add(new MapTagCategoryInstruction(type,
+            (List<String>) args.path, (String) args.newName, (List<String>) args.newParentPath,
+            (MapTagTargetLocation) args.targetLocation, (Integer) args.index,
+            (String) args.color, null))
+
+    if (newTagColorMode() == "inherit" && newPath != null && !newPath.isEmpty()
+            && args.targetLocation == MapTagTargetLocation.CATEGORIZED) {
+        try {
+            def state = readState()
+            Map<String, String> existing = colorByQualifiedName(state)
+
+            // رنگ مؤثر را از والدها بگیر، نه از رنگ فعلی خود تگ
+            String targetColor = effectiveColorForMove(newPath, existing)
+
+            if (targetColor != null) {
+                // رنگ فعلی خود تگ (و زیرشاخه‌ها) را با رنگ مؤثر جدید مقایسه کن
+                List<List<String>> pathsToCheck
+                if (!recurseChildren) {
+                    pathsToCheck = [new ArrayList<String>(newPath)]
+                } else {
+                    pathsToCheck = branchPaths(state, newPath)
+                }
+
+                List instructionsColor = []
+                for (List<String> p : pathsToCheck) {
+                    String currentColor = existing.get(p.join(separator()))
+                    if (currentColor == null || !currentColor.equalsIgnoreCase(targetColor)) {
+                        instructionsColor.add(new MapTagCategoryInstruction(
+                                MapTagCategoryInstructionType.SET_COLOR,
+                                new ArrayList<String>(p), null, null,
+                                MapTagTargetLocation.CATEGORIZED, null, targetColor, null))
+                    }
+                }
+                instructions.addAll(instructionsColor)
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, instructions))
+}
+// دقیقاً همان کاری را می‌کند که دکمه «Recolor sub-tags to match this category»:
+// همه‌ی زیرشاخه‌های تگ جابه‌جا‌شده را با رنگ مؤثر والد جدید هم‌رنگ می‌کند.
+void recolorBranchAfterMove(List<String> movedPath) {
+    if (newTagColorMode() != "inherit") return
+    if (movedPath == null || movedPath.isEmpty()) return
+
+    // اگر تگ به سطح اول رسیده (والد ندارد)، رنگ آن را تغییر نده
+    if (movedPath.size() <= 1) {
+        return
+    }
+
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        return
+    }
+
+    Map<String, String> existing = colorByQualifiedName(state)
+    String targetColor = effectiveColorForMove(movedPath, existing)
+    if (targetColor == null) return
+
+    List<List<String>> allPaths
+    try {
+        allPaths = branchPaths(state, movedPath)
+    } catch (Throwable t) {
+        allPaths = [new ArrayList<String>(movedPath)]
+    }
+
+    try {
+        def categories = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.tagCategories
+        List instructions = []
+        for (List<String> p : allPaths) {
+            instructions.add(new MapTagCategoryInstruction(
+                    MapTagCategoryInstructionType.SET_COLOR,
+                    new ArrayList<String>(p), null, null,
+                    MapTagTargetLocation.CATEGORIZED, null, targetColor, null))
+        }
+        if (!instructions.isEmpty()) {
+            categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, instructions))
+        }
+    } catch (Throwable t) {
+        showStatus("Recolor branch after move failed: " + t.getMessage())
+    }
+}
+// نمایش کادر هشدار برای تغییر رنگ شاخه هنگام جابه‌جایی
+// return true = رنگ والد جدید اعمال شود، false = رنگ قبلی حفظ شود
+boolean askBranchRecolorPreference(String tagName) {
+    // اگر کاربر قبلاً «دیگر نپرس» را زده، همان انتخاب قبلی را برگردان
+    if (branchRecolorPreference != null) {
+        return branchRecolorPreference
+    }
+
+    JCheckBox dontAskAgain = new JCheckBox("Don't ask again until the script is reloaded")
+    JPanel panel = new JPanel()
+    panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS))
+    panel.add(new JLabel("<html>The tag '<b>" + HtmlUtils.toXMLEscapedText(tagName) + "</b>' has subtags.<br><br>" +
+            "What color should its branch take?</html>"))
+    panel.add(Box.createVerticalStrut(8))
+    panel.add(dontAskAgain)
+
+    Object[] options = ["Apply parent color", "Keep previous color", "Cancel"]
+    int choice = JOptionPane.showOptionDialog(tagPanel, panel,
+            "Branch color after move",
+            JOptionPane.YES_NO_CANCEL_OPTION,
+            JOptionPane.QUESTION_MESSAGE,
+            null, options, options[0])
+
+    if (choice == JOptionPane.CLOSED_OPTION || choice == 2) {
+        return false   // Cancel → هیچ تغییری اعمال نکن
+    }
+
+    boolean applyParentColor = (choice == 0)  // 0 = Apply parent color
+    if (dontAskAgain.isSelected()) {
+        branchRecolorPreference = applyParentColor
+    }
+    return applyParentColor
+}
 void moveSelectedTag(String direction) {
-    TagRow row = selectedRow()
-    if (row == null || row.synthetic) {
+    List<TagRow> rows = selectedRows()
+    if (rows.isEmpty()) {
         showStatus("Select a tag first")
         return
     }
@@ -2824,11 +3286,115 @@ void moveSelectedTag(String direction) {
         showStatus("Reordering is off while sorting by usage — switch back to the tree order")
         return
     }
-    if (row.uncategorized) {
-        showStatus("Uncategorized tags are sorted alphabetically — no manual order")
+
+    // تگ‌های uncategorized ترتیب دستی ندارند
+    rows = rows.findAll { !it.uncategorized }
+    if (rows.isEmpty()) {
+        showStatus("Uncategorized tags have no manual order")
         return
     }
 
+    // حذف تکراری‌ها با حفظ ترتیب
+    Set<String> seen = new LinkedHashSet<String>()
+    List<TagRow> uniqueRows = []
+    for (TagRow r : rows) {
+        if (seen.add(r.qualifiedName)) uniqueRows.add(r)
+    }
+    rows = uniqueRows
+
+    // ===== تک‌تگ: منطق قبلی =====
+    if (rows.size() == 1) {
+        moveSingleTag(rows[0], direction)
+        refreshTree(true)
+        return
+    }
+
+    // ===== چندتگ: فقط اگر هم‌سطح و پیوسته باشند =====
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        showStatus("Could not read tags: " + t.getMessage())
+        return
+    }
+
+    String sep = separator()
+
+    // والد تگ اول
+    List<String> parentPath = rows[0].path.size() > 1
+            ? rows[0].path.subList(0, rows[0].path.size() - 1) as List<String>
+            : []
+    String parentQn = parentPath.join(sep)
+
+    // بررسی هم‌سطح بودن
+    for (int i = 1; i < rows.size(); i++) {
+        List<String> p = rows[i].path.size() > 1
+                ? rows[i].path.subList(0, rows[i].path.size() - 1) as List<String>
+                : []
+        if (p.join(sep) != parentQn) {
+            showStatus("Tags are on different levels — no action taken")
+            return
+        }
+    }
+
+    // ایندکس هر تگ در هم‌رده‌ها
+    List siblings = childrenAt(state, parentPath)
+    if (siblings.isEmpty()) return
+
+    List<Map> group = []
+    for (TagRow row : rows) {
+        int idx = siblings.findIndexOf { it.name == row.name }
+        if (idx < 0) {
+            showStatus("Tag not found in siblings: " + row.name)
+            return
+        }
+        group.add([row: row, index: idx])
+    }
+    group.sort { a, b -> (int) a.index <=> (int) b.index }
+
+    // بررسی پیوستگی
+    for (int i = 1; i < group.size(); i++) {
+        if ((int) group[i].index != (int) group[i - 1].index + 1) {
+            showStatus("Tags are not adjacent — no action taken")
+            return
+        }
+    }
+
+    // ===== اینجا گروه مثل یک تگ رفتار می‌کند =====
+    moveGroupAsSingleTag(group, parentPath, direction)
+    refreshTree(true)
+}
+void extendSelection(int delta) {
+    if (tagTree == null) return
+    int rows = tagTree.getRowCount()
+    if (rows == 0) return
+
+    int current = tagTree.getLeadSelectionRow()
+    if (current < 0) {
+        current = 0
+        tagTree.setSelectionRow(0)
+        return
+    }
+
+    int next = current + delta
+    if (next < 0 || next >= rows) return
+
+    // انتخاب فعلی را نگه دار و ردیف جدید را اضافه/حذف کن
+    TreePath currentPath = tagTree.getPathForRow(current)
+    TreePath nextPath = tagTree.getPathForRow(next)
+    if (nextPath == null) return
+
+    // اگر ردیف جدید قبلاً انتخاب شده، حذفش کن (toggle)
+    if (tagTree.isPathSelected(nextPath)) {
+        tagTree.removeSelectionPath(nextPath)
+    } else {
+        tagTree.addSelectionPath(nextPath)
+    }
+    tagTree.setLeadSelectionPath(nextPath)
+    tagTree.scrollRowToVisible(next)
+}
+// تابع کمکی برای جابه‌جایی یک تگ (استفاده‌شده در جابه‌جایی گروهی)
+void moveSingleTag(TagRow row, String direction) {
     def state
     try {
         state = readState()
@@ -2841,51 +3407,250 @@ void moveSelectedTag(String direction) {
     List<String> parentPath = path.size() > 1 ? path.subList(0, path.size() - 1) as List<String> : []
     List siblings = childrenAt(state, parentPath)
     int index = siblings.findIndexOf { it.name == row.name }
-    if (index < 0) {
-        showStatus("Tag not found (changed underneath?) — refreshing")
-        scheduleRefresh()
-        return
-    }
+    if (index < 0) return
 
     List<String> newParentPath = null
     Integer newIndex = null
+    boolean parentChanged = false
+
     switch (direction) {
         case 'up':
-            if (index <= 0) { showStatus("Already first"); return }
+            if (index <= 0) return
             newParentPath = parentPath; newIndex = index - 1
             break
         case 'down':
-            if (index >= siblings.size() - 1) { showStatus("Already last"); return }
+            if (index >= siblings.size() - 1) return
             newParentPath = parentPath; newIndex = index + 2
             break
         case 'demote':
-            if (index <= 0) { showStatus("No previous sibling to move under"); return }
+            if (index <= 0) return
             newParentPath = new ArrayList<String>(parentPath); newParentPath.add(siblings[index - 1].name)
             newIndex = null
+            parentChanged = true
             break
         case 'promote':
-            if (path.size() < 2) { showStatus("Already at the top level"); return }
+            if (path.size() < 2) return
             List<String> grandParentPath = path.size() > 2 ? path.subList(0, path.size() - 2) as List<String> : []
             List parentSiblings = childrenAt(state, grandParentPath)
             int parentIndex = parentSiblings.findIndexOf { it.name == parentPath[parentPath.size() - 1] }
             newParentPath = grandParentPath; newIndex = parentIndex + 1
+            parentChanged = true
             break
         default:
             return
     }
 
+    boolean hasSubtags = false
     try {
-        runInstruction(MapTagCategoryInstructionType.MOVE_TAG,
-                [path: path, newParentPath: newParentPath, targetLocation: MapTagTargetLocation.CATEGORIZED,
-                 index: newIndex])
+        hasSubtags = !childrenAt(state, path).isEmpty()
+    } catch (Throwable ignored) {}
+
+    try {
+        List<String> movedPath = new ArrayList<String>(newParentPath)
+        movedPath.add(row.name)
+        runMoveWithColor(MapTagCategoryInstructionType.MOVE_TAG,
+                [path: path, newParentPath: newParentPath,
+                 targetLocation: MapTagTargetLocation.CATEGORIZED, index: newIndex],
+                movedPath, false)
+
         String newQn = (newParentPath.isEmpty() ? "" : newParentPath.join(separator()) + separator()) + row.name
         expandedQns.addAll(newParentPath.isEmpty() ? [] : [newParentPath.join(separator())])
         remapFavorites(row.qualifiedName, newQn)
-        showStatus("Moved '" + row.name + "' (" + direction + ") — Ctrl+Z undoes")
-        refreshTree()
-        selectRowByQn(newQn)
+
+        if (parentChanged && hasSubtags) {
+            if (askBranchRecolorPreference(row.name)) {
+                recolorBranchAfterMove(movedPath)
+            }
+        } else if (parentChanged) {
+            recolorBranchAfterMove(movedPath)
+        }
     } catch (Throwable t) {
         showStatus("Move failed: " + t.getMessage())
+    }
+}
+// فقط افزودن همه‌ی تگ‌های انتخاب‌شده به گره(های) انتخاب‌شده — هرگز حذف نمی‌کند
+void assignAllSelectedTagsToSelection() {
+    List<TagRow> rows = selectedRows()
+    if (rows.isEmpty()) return
+    List<NodeModel> selected = selectedMapNodes()
+    if (selected.isEmpty()) {
+        showStatus("No node selected in the map")
+        return
+    }
+
+    int added = 0
+    int alreadyPresent = 0
+
+    for (TagRow row : rows) {
+        String qn = row.qualifiedName
+        if (qn == null) continue
+        for (NodeModel nodeModel : selected) {
+            def tags = ProxyFactory.createNode(nodeModel, null).getTags()
+            if (!tags.getTags().contains(qn)) {
+                tags.add(qn)
+                added++
+            } else {
+                alreadyPresent++
+            }
+        }
+    }
+
+    if (added == 0) {
+        showStatus("All " + rows.size() + " tag(s) already present on " + selected.size() + " node(s) — nothing changed")
+    } else {
+        String msg = "Assigned " + rows.size() + " tag(s) to " + selected.size() + " node(s): " + added + " added"
+        if (alreadyPresent > 0) msg += ", " + alreadyPresent + " already present"
+        showStatus(msg)
+    }
+
+    updateAssignedMarks()
+    scheduleRefresh()
+    maybeCloseAfterInsert(added)
+}
+// جابه‌جایی گروهی که هم‌سطح و پیوسته است، به‌عنوان یک تگ مجازی
+// جابه‌جایی گروهی که هم‌سطح و پیوسته است، به‌عنوان یک تگ مجازی
+void moveGroupAsSingleTag(List<Map> group, List<String> parentPath, String direction) {
+    def state
+    try {
+        state = readState()
+    } catch (Throwable t) {
+        showStatus("Could not read tags: " + t.getMessage())
+        return
+    }
+
+    List siblings = childrenAt(state, parentPath)
+    int blockStart = (int) group[0].index
+    int blockEnd   = (int) group[group.size() - 1].index
+    int blockSize  = group.size()
+
+    String sep = separator()
+
+    // ساخت دستورات جابه‌جایی
+    List instructions = []
+    List<String> newParentPath = null
+    boolean parentChanged = false
+
+    switch (direction) {
+        case 'up':
+            if (blockStart <= 0) return
+            newParentPath = parentPath
+            // بالاترین تگ بلوک را یکی‌یکی به بالا منتقل کن (از بالا به پایین)
+            // هر MOVE_TAG با ایندکس blockStart-1 ، بلوک را یک پله بالا می‌برد
+            // اما ساده‌تر: همه را به ایندکس blockStart-1 منتقل کن، به ترتیب معکوس
+            // چون هر move به ابتدای بلوک جدید می‌چسبد
+            for (int i = 0; i < group.size(); i++) {
+                TagRow row = (TagRow) group[i].row
+                instructions.add(new MapTagCategoryInstruction(
+                        MapTagCategoryInstructionType.MOVE_TAG,
+                        new ArrayList<String>(row.path),
+                        null,
+                        new ArrayList<String>(newParentPath),
+                        MapTagTargetLocation.CATEGORIZED,
+                        blockStart - 1,
+                        null, null))
+            }
+            break
+
+        case 'down':
+            if (blockEnd >= siblings.size() - 1) return
+            newParentPath = parentPath
+            // پایین‌ترین تگ بلوک را یکی‌یکی به پایین منتقل کن (از پایین به بالا)
+            // هر MOVE_TAG با ایندکس blockEnd+2 ، بلوک را یک پله پایین می‌برد
+            for (int i = group.size() - 1; i >= 0; i--) {
+                TagRow row = (TagRow) group[i].row
+                instructions.add(new MapTagCategoryInstruction(
+                        MapTagCategoryInstructionType.MOVE_TAG,
+                        new ArrayList<String>(row.path),
+                        null,
+                        new ArrayList<String>(newParentPath),
+                        MapTagTargetLocation.CATEGORIZED,
+                        blockEnd + 2,
+                        null, null))
+            }
+            break
+
+        case 'demote':
+            if (blockStart <= 0) return
+            newParentPath = new ArrayList<String>(parentPath)
+            newParentPath.add(siblings[blockStart - 1].name)
+            parentChanged = true
+            // همه را به والد جدید منتقل کن (ایندکس null = آخر)
+            for (int i = 0; i < group.size(); i++) {
+                TagRow row = (TagRow) group[i].row
+                instructions.add(new MapTagCategoryInstruction(
+                        MapTagCategoryInstructionType.MOVE_TAG,
+                        new ArrayList<String>(row.path),
+                        null,
+                        new ArrayList<String>(newParentPath),
+                        MapTagTargetLocation.CATEGORIZED,
+                        null, null, null))
+            }
+            break
+
+        case 'promote':
+            if (parentPath.isEmpty()) return
+            List<String> grandParentPath = parentPath.size() > 1
+                    ? parentPath.subList(0, parentPath.size() - 1) as List<String>
+                    : []
+            List parentSiblings = childrenAt(state, grandParentPath)
+            String parentName = parentPath[parentPath.size() - 1]
+            int parentIdx = parentSiblings.findIndexOf { it.name == parentName }
+            if (parentIdx < 0) return
+            newParentPath = grandParentPath
+            parentChanged = true
+            // همه را بعد از والد، به ترتیب، منتقل کن
+            for (int i = 0; i < group.size(); i++) {
+                TagRow row = (TagRow) group[i].row
+                instructions.add(new MapTagCategoryInstruction(
+                        MapTagCategoryInstructionType.MOVE_TAG,
+                        new ArrayList<String>(row.path),
+                        null,
+                        new ArrayList<String>(newParentPath),
+                        MapTagTargetLocation.CATEGORIZED,
+                        parentIdx + 1 + i,
+                        null, null))
+            }
+            break
+
+        default:
+            return
+    }
+
+    // اجرا
+    try {
+        def categories = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.tagCategories
+        categories.edit(new MapTagCategoryInstructionRequest(
+                categories.read().revision, instructions))
+
+        // favorites
+        String newPrefix = newParentPath.isEmpty() ? "" : newParentPath.join(sep) + sep
+        for (Map g : group) {
+            TagRow row = (TagRow) g.row
+            remapFavorites(row.qualifiedName, newPrefix + row.name)
+        }
+        if (!newParentPath.isEmpty()) expandedQns.add(newParentPath.join(sep))
+
+        showStatus("Moved " + group.size() + " tags as one block (" + direction + ") — Ctrl+Z undoes")
+    } catch (Throwable t) {
+        showStatus("Block move failed: " + t.getMessage())
+    }
+}
+
+
+// تابع کمکی برای اطمینان از آپدیت رنگ در مدل
+void waitForColorToApply(String qn, List<String> path) {
+    if (newTagColorMode() != "inherit") return
+    for (int i = 0; i < 20; i++) { // حداکثر ۲۰۰ میلی‌ثانیه صبر
+        try {
+            def state = readState()
+            Map<String, String> existing = colorByQualifiedName(state)
+            String currentColor = existing.get(qn)
+            String targetColor = effectiveColorForMove(path, existing)
+            if (targetColor != null && currentColor != null && currentColor.equalsIgnoreCase(targetColor)) {
+                break // رنگ درست شد
+            }
+            Thread.sleep(10)
+        } catch (Throwable ignored) {}
     }
 }
 
@@ -2993,18 +3758,20 @@ void deleteTagNow(TagRow row) {
 }
 
 void deleteSelectedTag() {
-    TagRow row = selectedRow()
-    if (row == null || row.synthetic) return
+    List<TagRow> rows = selectedRows()
+    if (rows.isEmpty()) return
 
     long now = System.currentTimeMillis()
-    if (row.qualifiedName.equals(armedDeleteQn) && now - armedDeleteAt < deleteArmMs) {
-        deleteTagNow(row)
+    boolean allArmed = rows.every { it.qualifiedName.equals(armedDeleteQn) }
+    if (allArmed && now - armedDeleteAt < deleteArmMs) {
+        for (TagRow row : rows) deleteTagNow(row)
+        armedDeleteQn = null
         return
     }
-    armedDeleteQn = row.qualifiedName
+    armedDeleteQn = rows.size() == 1 ? rows[0].qualifiedName : "::multiple::"
     armedDeleteAt = now
     tagTree.repaint()
-    showStatus("Press Delete again to delete '" + row.qualifiedName + "' (and its subtags) from the map")
+    showStatus("Press Delete again to delete " + rows.size() + " tag(s) from the map")
 }
 
 void chooseTagColor(TagRow row) {
@@ -3036,19 +3803,111 @@ void moveToUncategorized(TagRow row) {
         showStatus("Move failed: " + t.getMessage())
     }
 }
+// ساخت تگ جدید در Uncategorized و اعمال آن روی گره‌های انتخاب‌شده
+void addNewUncategorizedTag() {
+    String tagName = JOptionPane.showInputDialog(tagPanel,
+            "Enter the new tag name (will be created in Uncategorized):",
+            "Add Tag", JOptionPane.PLAIN_MESSAGE)
+    if (tagName == null) return
+    tagName = tagName.trim()
+    if (tagName.isEmpty()) return
+    if (tagName.contains(separator())) {
+        showStatus("The name cannot contain '" + separator() + "'")
+        return
+    }
+
+    def state = readState()
+    Map<String, String> existing = colorByQualifiedName(state)
+
+    if (existing.containsKey(tagName)) {
+        // تگ از قبل وجود دارد → فقط به گره‌ها اختصاص بده
+        int touched = 0
+        selectedMapNodes().each { nodeModel ->
+            def tags = ProxyFactory.createNode(nodeModel, null).getTags()
+            if (!tags.getTags().contains(tagName)) {
+                tags.add(tagName)
+                touched++
+            }
+        }
+        showStatus("Assigned existing tag '" + tagName + "' to " + touched + " node" + (touched == 1 ? "" : "s"))
+        updateAssignedMarks()
+        return
+    }
+
+    // ساخت تگ جدید در Uncategorized
+    try {
+        runInstruction(MapTagCategoryInstructionType.ADD_TAG,
+                [path: [tagName], targetLocation: MapTagTargetLocation.UNCATEGORIZED])
+    } catch (Throwable t) {
+        showStatus("Could not create '" + tagName + "': " + t.getMessage())
+        return
+    }
+
+    // رنگ آبی پیش‌فرض
+    try {
+        def categories = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.tagCategories
+        List instructions = [new MapTagCategoryInstruction(
+                MapTagCategoryInstructionType.SET_COLOR,
+                [tagName], null, null,
+                MapTagTargetLocation.UNCATEGORIZED, null,
+                chosenFixedColor() ?: newTagColorFallback, null)]
+        categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, instructions))
+    } catch (Throwable ignored) {}
+
+    // اعمال به گره‌های انتخاب‌شده
+    int touched = 0
+    selectedMapNodes().each { nodeModel ->
+        def tags = ProxyFactory.createNode(nodeModel, null).getTags()
+        if (!tags.getTags().contains(tagName)) {
+            tags.add(tagName)
+            touched++
+        }
+    }
+
+    showStatus("Created '" + tagName + "' and assigned to " + touched + " node" + (touched == 1 ? "" : "s"))
+    updateAssignedMarks()
+    refreshTree()
+}
 
 void categorizeAtTopLevel(TagRow row) {
     try {
+        // اطلاعات قبل از جابه‌جایی
+        def state = readState()
+        Map<String, String> existing = colorByQualifiedName(state)
+        String previousColor = existing.get(row.qualifiedName)
+        boolean hadParent = row.path != null && row.path.size() > 1
+        
+        // جابه‌جایی ساده بدون رنگ‌آمیزی خودکار
         runInstruction(MapTagCategoryInstructionType.MOVE_TAG,
                 [path: row.path, newParentPath: [], targetLocation: MapTagTargetLocation.CATEGORIZED])
+        
+        // اگر از Uncategorized آمده بود (والد قبلی نداشت) → آبی
+        // اگر از درخت آمده بود (والد قبلی داشت) → رنگ قبلی حفظ شود
+        String targetColor = null
+        if (!hadParent) {
+            targetColor = chosenFixedColor() ?: newTagColorFallback  // آبی
+        } else if (previousColor != null) {
+            targetColor = previousColor  // رنگ قبلی حفظ شود
+        }
+        
+        if (targetColor != null) {
+            try {
+                def categories = ProxyFactory.createNode(boundMapView.map.rootNode, null).mindMap.tagCategories
+                List instructions = [new MapTagCategoryInstruction(
+                        MapTagCategoryInstructionType.SET_COLOR,
+                        [row.name], null, null,
+                        MapTagTargetLocation.CATEGORIZED, null, targetColor, null)]
+                categories.edit(new MapTagCategoryInstructionRequest(categories.read().revision, instructions))
+            } catch (Throwable ignored) {}
+        }
+        
         showStatus("Moved '" + row.qualifiedName + "' to the top level — Ctrl+Z undoes")
-        refreshTree()
+        refreshTree(true)
         selectRowByQn(row.name)
     } catch (Throwable t) {
         showStatus("Move failed: " + t.getMessage())
     }
 }
-
 /*
  ↑↑↑↑↑↑↑↑↑↑↑↑↑↑ Structure edits (the Manage-Categories role) ↑↑↑↑↑↑↑↑
 */
@@ -3071,6 +3930,7 @@ TransferHandler createTreeDndHandler() {
             TagRow row = selectedRow()
             if (row == null || row.synthetic) return null
             draggedRow = row
+            draggedTagQn = row.qualifiedName  // ← این خط را اضافه کنید
             return new Transferable() {
                 @Override
                 DataFlavor[] getTransferDataFlavors() { return [tagDndFlavor] as DataFlavor[] }
@@ -3104,6 +3964,7 @@ TransferHandler createTreeDndHandler() {
         @Override
         void exportDone(JComponent source, Transferable data, int action) {
             draggedRow = null
+            draggedTagQn = null
         }
     }
 }
@@ -3167,14 +4028,44 @@ Map planDropMove(TagRow dragged, TagRow parentRow, Integer childIndex) {
 String performDropMove(Map plan) {
     String oldQn = ((List<String>) plan.path).join(separator())
     try {
-        runInstruction(MapTagCategoryInstructionType.MOVE_TAG,
+        List<String> oldParentPath = (plan.path as List<String>).size() > 1
+                ? (plan.path as List<String>).subList(0, (plan.path as List<String>).size() - 1) as List<String>
+                : []
+
+        List<String> movedPath = null
+        if (plan.targetLocation == MapTagTargetLocation.CATEGORIZED && plan.newParentPath != null) {
+            movedPath = new ArrayList<String>((List<String>) plan.newParentPath)
+            movedPath.add(((List<String>) plan.path).last())
+        }
+
+        boolean hasSubtags = false
+        try {
+            def state = readState()
+            hasSubtags = !childrenAt(state, (List<String>) plan.path).isEmpty()
+        } catch (Throwable ignored) {}
+
+        runMoveWithColor(MapTagCategoryInstructionType.MOVE_TAG,
                 [path: plan.path, newParentPath: plan.newParentPath,
-                 targetLocation: plan.targetLocation, index: plan.index])
+                 targetLocation: plan.targetLocation, index: plan.index],
+                movedPath, false)
+
         if (plan.expandQn != null) expandedQns.add((String) plan.expandQn)
         remapFavorites(oldQn, (String) plan.newQn)
+
+        boolean parentChanged = movedPath != null &&
+                !(plan.newParentPath != null && plan.newParentPath.equals(oldParentPath))
+        if (parentChanged && hasSubtags) {
+            // تگ فرزند دارد → کادر هشدار نشان بده
+            if (askBranchRecolorPreference(((List<String>) plan.path).last())) {
+                recolorBranchAfterMove(movedPath)
+            }
+        } else if (parentChanged) {
+            recolorBranchAfterMove(movedPath)
+        }
+
         String message = "Moved '" + plan.newQn + "' — Ctrl+Z undoes"
         showStatus(message)
-        refreshTree()
+        refreshTree(true)
         selectRowByQn((String) plan.newQn)
         return message
     } catch (Throwable t) {
@@ -3183,7 +4074,6 @@ String performDropMove(Map plan) {
         return message
     }
 }
-
 void remeasureRows(Collection<String> qualifiedNames) {
     if (qualifiedNames.isEmpty() || tagTree == null) return
     DefaultTreeModel model = (DefaultTreeModel) tagTree.getModel()
@@ -3239,6 +4129,36 @@ int indexAmongTagChildren(DefaultMutableTreeNode parentNode, String qn) {
 
 void showContextMenu(MouseEvent e) {
     TreePath path = tagTree.getPathForLocation(e.getX(), e.getY())
+    TagRow clickedRow = rowOf(path)
+
+    List<TagRow> selectedRows = selectedRows()
+    if (selectedRows.size() > 1 && clickedRow != null && selectedRows.contains(clickedRow)) {
+        JPopupMenu groupMenu = new JPopupMenu()
+        groupMenu.add(menuItem("➕ Assign all selected tags to node(s)",
+                { assignAllSelectedTagsToSelection() }))
+        groupMenu.add(menuItem("➖ Remove all selected tags from node(s)",
+                {
+                    selectedRows.each { r ->
+                        selectedMapNodes().each { n ->
+                            ProxyFactory.createNode(n, null).getTags().remove(r.qualifiedName)
+                        }
+                    }
+                    updateAssignedMarks(); scheduleRefresh()
+                }))
+        groupMenu.addSeparator()
+        groupMenu.add(menuItem("🗑 Delete all selected tags", {
+            int confirm = JOptionPane.showConfirmDialog(tagPanel,
+                    "Delete " + selectedRows.size() + " selected tag(s) from the map?",
+                    "Confirm Delete", JOptionPane.YES_NO_OPTION)
+            if (confirm == JOptionPane.YES_OPTION) {
+                selectedRows.each { deleteTagNow(it) }
+            }
+        }))
+        attachPopupGuard(groupMenu)
+        groupMenu.show(tagTree, e.getX(), e.getY())
+        return
+    }
+
     if (path == null) return
     tagTree.setSelectionPath(path)
     TagRow row = rowOf(path)
@@ -3247,35 +4167,26 @@ void showContextMenu(MouseEvent e) {
     JPopupMenu menu = new JPopupMenu()
     menu.add(menuItem("Assign to selected node(s)", { assignTagToSelection(row) }))
     menu.add(menuItem("Remove from selected node(s)", { removeTagFromSelection(row) }))
+
+    if (!row.uncategorized) {
+        menu.add(menuItem("Add child tag  (Insert)", { addChildTag(row) }))
+        menu.add(menuItem("⚡ Add Child Tag (Fast)", {
+            selectRowByQn(row.qualifiedName)
+            openFastChildPanel()
+        }))
+    }
+    menu.addSeparator()
+    menu.add(menuItem("➕ Add Tag (Uncategorized)", { addNewUncategorizedTag() }))
     menu.addSeparator()
     menu.add(isFavorite(row.qualifiedName)
             ? menuItem("Remove from favorites", { removeFavorite(row.qualifiedName) })
             : menuItem("Add to favorites  " + favoriteSymbol, { addFavorite(row.qualifiedName) }))
     menu.addSeparator()
     menu.add(menuItem("Rename  (F2)", { startRename() }))
-    if (!row.uncategorized) {
-        menu.add(menuItem("Add child tag  (Insert)", { addChildTag(row) }))
-       
-        menu.add(menuItem("⚡ Add Child Tag (Fast)", { 
-         
-                selectRowByQn(row.qualifiedName)
-            
-                openFastChildPanel()
-        }))
-    }
     menu.add(menuItem("Delete", { deleteTagNow(row) }))
     menu.addSeparator()
-    
-    // ===== فقط یک آیتم برای Merge/Assign =====
-    menu.add(menuItem("🔀 Merge / Assign", { 
-        openMergePanel()
-    }))
-
-    // ===== اضافه کردن گزینه Locate =====
-    menu.add(menuItem("📍 Locate Tag", { 
-        installClickLocator()
-    }))
-    
+    menu.add(menuItem("🔀 Merge / Assign", { openMergePanel() }))
+    menu.add(menuItem("📍 Locate Tag", { installClickLocator() }))
     menu.addSeparator()
     menu.add(menuItem("Set color…", { chooseTagColor(row) }))
     menu.add(menuItem("Reset color to default", { applyTagColor(row, "none") }))
@@ -3288,8 +4199,8 @@ void showContextMenu(MouseEvent e) {
         menu.addSeparator()
         menu.add(menuItem("Move up  (Alt+↑)", { moveSelectedTag('up') }))
         menu.add(menuItem("Move down  (Alt+↓)", { moveSelectedTag('down') }))
-        menu.add(menuItem("Promote  (Alt+←)", { moveSelectedTag('promote') }))
-        menu.add(menuItem("Demote  (Alt+→)", { moveSelectedTag('demote') }))
+        menu.add(menuItem("Demote  (Alt+←)", { moveSelectedTag('demote') }))
+        menu.add(menuItem("Promote  (Alt+→)", { moveSelectedTag('promote') }))
         DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent()
         if (node.getChildCount() == 0) {
             menu.add(menuItem("Move to uncategorized", { moveToUncategorized(row) }))
@@ -3348,6 +4259,7 @@ void showOptionsDialog() {
     content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS))
     content.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12))
 
+    // ===== New tags (color policy) =====
     JLabel parentPreview = previewChip("parent")
     JLabel childPreview = previewChip("child")
     JButton colorButton = new JButton("      ")
@@ -3412,6 +4324,7 @@ void showOptionsDialog() {
     previewRow.add(childPreview)
     content.add(leftAligned(previewRow))
 
+    // ===== Behaviour =====
     content.add(Box.createVerticalStrut(10))
     content.add(sectionLabel("Behaviour"))
 
@@ -3421,6 +4334,15 @@ void showOptionsDialog() {
         applyCloseAfterInsert(closeAfterInsertBox.isSelected())
     } as ActionListener)
     content.add(leftAligned(closeAfterInsertBox))
+
+    JCheckBox rtlBox = new JCheckBox("Right-to-left layout (RTL)", isRtlMode())
+    rtlBox.setName("UnifiedTagPanelRtlBox")
+    rtlBox.setToolTipText("RTL: tree is mirrored and Alt+← demotes / Alt+→ promotes. " +
+            "LTR: tree is left-to-right and Alt+← promotes / Alt+→ demotes.")
+    rtlBox.addActionListener({ ActionEvent e ->
+        applyRtlMode(rtlBox.isSelected())
+    } as ActionListener)
+    content.add(leftAligned(rtlBox))
 
     JCheckBox followTabsBox = new JCheckBox("Show on every tab", isFollowTabs())
     followTabsBox.setName("UnifiedTagPanelFollowTabsBox")
@@ -3443,16 +4365,52 @@ void showOptionsDialog() {
     } as ActionListener)
     content.add(leftAligned(usageCountsBox))
 
+    // ===== Appearance =====
+    content.add(Box.createVerticalStrut(10))
+    content.add(sectionLabel("Appearance"))
+
+    // Row height
+    JPanel rowHeightRow = transparentPanel(new FlowLayout(FlowLayout.LEFT, 6, 0))
+    rowHeightRow.add(new JLabel("Row height (px, 0 = auto):"))
+    JSpinner rowHeightSpinner = new JSpinner(new SpinnerNumberModel(rowHeightPx, 0, 200, 1))
+    rowHeightSpinner.setName("UnifiedTagPanelRowHeightSpinner")
+    rowHeightSpinner.setPreferredSize(new Dimension(80, 28))
+    rowHeightSpinner.addChangeListener({ javax.swing.event.ChangeEvent ev ->
+        int val = (int) rowHeightSpinner.getValue()
+        applyRowHeight(val)
+    } as javax.swing.event.ChangeListener)
+    rowHeightRow.add(rowHeightSpinner)
+    content.add(leftAligned(rowHeightRow))
+
+    // Font
+    JPanel fontRow = transparentPanel(new FlowLayout(FlowLayout.LEFT, 6, 0))
+    fontRow.add(new JLabel("Font:"))
+    JComboBox<String> fontCombo = new JComboBox<>(availableFontNames())
+    fontCombo.setName("UnifiedTagPanelFontCombo")
+    fontCombo.setPreferredSize(new Dimension(180, 28))
+    fontCombo.setSelectedItem(panelTextFontName)
+    fontCombo.addActionListener({ ActionEvent e ->
+        applyFontSettings((String) fontCombo.getSelectedItem(), panelTextFontSize)
+    } as ActionListener)
+    fontRow.add(fontCombo)
+
+    JSpinner fontSpinner = new JSpinner(new SpinnerNumberModel(panelTextFontSize, 8, 72, 1))
+    fontSpinner.setName("UnifiedTagPanelFontSizeSpinner")
+    fontSpinner.setPreferredSize(new Dimension(70, 28))
+    fontSpinner.addChangeListener({ javax.swing.event.ChangeEvent ev ->
+        applyFontSettings(panelTextFontName, (int) fontSpinner.getValue())
+    } as javax.swing.event.ChangeListener)
+    fontRow.add(fontSpinner)
+    content.add(leftAligned(fontRow))
+
+    // ===== Footnote =====
     content.add(Box.createVerticalStrut(10))
     JLabel footnote = new JLabel("<html><i>Colors apply to tags created in this panel.<br>"
             + "Tags made elsewhere in Freeplane keep its own default.</i></html>")
     footnote.setFont(footnote.getFont().deriveFont((float) (panelTextFontSize - 3)))
     content.add(leftAligned(footnote))
 
-   
-
-
-
+    // ===== Close button =====
     JButton closeButton = new JButton("Close")
     closeButton.addActionListener({ ActionEvent e -> dialog.dispose() } as ActionListener)
     JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0))
@@ -4530,6 +5488,70 @@ String getTagQualifiedName(def icon) {
 
 void showStatus(String message) {
     if (statusLabel != null) statusLabel.setText(" " + message)
+}
+
+
+// ===== Row height =====
+int loadRowHeight() {
+    try {
+        return ResourceController.getResourceController()
+                .getIntProperty(ROW_HEIGHT_KEY, 0)
+    } catch (Throwable t) {
+        return 0
+    }
+}
+
+void applyRowHeight(int px) {
+    rowHeightPx = Math.max(0, px)
+    try {
+        ResourceController.getResourceController()
+                .setProperty(ROW_HEIGHT_KEY, rowHeightPx)
+    } catch (Throwable t) {
+        showStatus("Could not save the row height: " + t.getMessage())
+    }
+    if (tagTree != null) {
+        tagTree.setRowHeight(rowHeightPx)
+        tagTree.revalidate()
+        tagTree.repaint()
+        fitPanelBounds()
+    }
+    if (rowHeightPx == 0) {
+        showStatus("Row height: auto")
+    } else {
+        showStatus("Row height: " + rowHeightPx + " px")
+    }
+}
+void applyFontSettings(String name, int size) {
+    panelTextFontName = name
+    panelTextFontSize = Math.max(8, size)
+    cachedItemFont = null
+    try {
+        def rc = ResourceController.getResourceController()
+        rc.setProperty(FONT_NAME_KEY, panelTextFontName)
+        rc.setProperty(FONT_SIZE_KEY, panelTextFontSize)
+    } catch (Throwable t) {
+        showStatus("Could not save the font: " + t.getMessage())
+    }
+    if (tagTree != null) {
+        tagTree.setFont(itemFont())
+        tagTree.setRowHeight(rowHeightPx)
+        tagTree.revalidate()
+        tagTree.repaint()
+    }
+    if (filterField != null) filterField.setFont(itemFont())
+    if (statusLabel != null) statusLabel.setFont(itemFont().deriveFont((float) (panelTextFontSize - 2)))
+    if (favoritesStrip != null) rebuildFavoritesStrip()
+    fitPanelBounds()
+    showStatus("Font: " + panelTextFontName + " " + panelTextFontSize + "pt")
+}
+
+String[] availableFontNames() {
+    try {
+        return GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .getAvailableFontFamilyNames()
+    } catch (Throwable t) {
+        return ["Dialog", "SansSerif", "Serif", "Monospaced"] as String[]
+    }
 }
 
 JPanel transparentPanel(LayoutManager layout) {
