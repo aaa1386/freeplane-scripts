@@ -6,7 +6,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
 تغییرات
 V2.1
 حل مشکل ناپدید شدن متن ابتدای تگ هنگام هاور روی تگ
-تغییر رنگ و ضخامت نوار در حالت انتخاب گره
+تغییر رنگ و ضخامت نوار در حالت انتخاب گره در تنظیمات 
+
 V2.0
 تغییر عرض پنل وقتی که خودکار نمی باشد 
 v1.9
@@ -327,7 +328,16 @@ import java.util.List
 @Field String newTagColorModeDefault = "default"
 // only used by "fixed", and as the last resort of "inherit" when a colour was ever picked
 @Field String newTagColorFallback = "#3366cc"
+// ===== ضخامت حاشیه‌ی انتخاب (پیکسل) =====
+@Field int selectionBorderThickness = 3
+@Field final String SELECTION_BORDER_KEY = "unifiedTagPanel.selectionBorderThickness"
 
+// ===== پدینگ پایه‌ی متن داخل هر ردیف =====
+// مجموع (LineBorder + EmptyBorder) باید در همه‌ی حالت‌ها ثابت بماند
+// تا متن هنگام انتخاب/لغو انتخاب جابه‌جا یا clip نشود.
+@Field final int rowTextPaddingX = 8   // پدینگ افقی پایه (وقتی حاشیه ۲ است)
+@Field final int rowTextPaddingY = 1   // پدینگ عمودی پایه
+@Field final int rowNormalBorderThickness = 2  // ضخامت حاشیه‌ی عادی (غیر انتخاب‌شده)
 /*
  ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ User settings ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 */
@@ -631,6 +641,43 @@ void applyRtlMode(boolean rtl) {
 }
 
 
+int loadSelectionBorderThickness() {
+    try {
+        return ResourceController.getResourceController()
+                .getIntProperty(SELECTION_BORDER_KEY, 3)
+    } catch (Throwable t) {
+        return 3
+    }
+}
+
+void applySelectionBorderThickness(int px) {
+    selectionBorderThickness = Math.max(1, Math.min(px, 12))
+    try {
+        ResourceController.getResourceController()
+                .setProperty(SELECTION_BORDER_KEY, selectionBorderThickness)
+    } catch (Throwable t) {
+        showStatus("Could not save the border thickness: " + t.getMessage())
+    }
+    // رندر مجدد ردیف‌ها
+    if (tagTree != null) {
+        tagTree.revalidate()
+        tagTree.repaint()
+    }
+    fitPanelBounds()
+    showStatus("Selection border thickness: " + selectionBorderThickness + " px")
+}
+
+// پدینگ افقی‌ای که باید کنار یک LineBorder با ضخامت borderThickness استفاده شود
+// تا مجموع فضای گرفته‌شده همیشه برابر rowNormalBorderThickness + rowTextPaddingX بماند
+int compensatingPaddingX(int borderThickness) {
+    int total = rowNormalBorderThickness + rowTextPaddingX   // مجموع مرجع (مثلاً 2+8=10)
+    return Math.max(0, total - borderThickness)
+}
+
+int compensatingPaddingY(int borderThickness) {
+    int total = rowNormalBorderThickness + rowTextPaddingY   // مثلاً 2+1=3
+    return Math.max(0, total - borderThickness)
+}
 
 boundMapView = Controller.currentController.mapViewManager.mapView as MapView
 if (boundMapView == null) return
@@ -2632,24 +2679,31 @@ TreeCellRenderer createTagRenderer() {
             tagLabel.setToolTipText(usageTooltip(row, hasChildren))
 
             boolean armed = row.qualifiedName != null && row.qualifiedName.equals(armedDeleteQn)
-            
-                        // Simplify: use a single Border for the entire row
-                        if (isSelected) {
-                            Color selectionBorder = new Color(0, 255, 0, 255)
-                            tagLabel.setBorder(BorderFactory.createCompoundBorder(
-                                    BorderFactory.createLineBorder(selectionBorder, 5),
-                                    BorderFactory.createEmptyBorder(1, 8, 1, 8)))
-                            tagLabel.setBackground(blendColors(chip, new Color(0, 255, 0), 0.08f))
-                        } else if (armed) {
-                            tagLabel.setBorder(BorderFactory.createCompoundBorder(
-                                    BorderFactory.createLineBorder(Color.RED, 2),
-                                    BorderFactory.createEmptyBorder(1, 8, 1, 8)))
-                        } else {
-                            tagLabel.setBorder(BorderFactory.createCompoundBorder(
-                                    BorderFactory.createLineBorder(chip, 2),
-                                    BorderFactory.createEmptyBorder(1, 8, 1, 8)))
-                        }
-            
+
+            // ===== محاسبه‌ی پدینگ جبرانی بر اساس ضخامت حاشیه =====
+            // مجموع (LineBorder + EmptyBorder) در همه‌ی حالت‌ها ثابت می‌ماند
+            // تا متن هنگام انتخاب/لغو انتخاب جابه‌جا یا clip نشود.
+            int normalPadX = compensatingPaddingX(rowNormalBorderThickness)
+            int normalPadY = compensatingPaddingY(rowNormalBorderThickness)
+            int selPadX    = compensatingPaddingX(selectionBorderThickness)
+            int selPadY    = compensatingPaddingY(selectionBorderThickness)
+
+            if (isSelected) {
+                Color selectionBorder = new Color(0, 255, 0, 255)
+                tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(selectionBorder, selectionBorderThickness),
+                        BorderFactory.createEmptyBorder(selPadY, selPadX, selPadY, selPadX)))
+                tagLabel.setBackground(blendColors(chip, new Color(0, 255, 0), 0.08f))
+            } else if (armed) {
+                tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(Color.RED, 2),
+                        BorderFactory.createEmptyBorder(normalPadY, normalPadX, normalPadY, normalPadX)))
+            } else {
+                tagLabel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(chip, rowNormalBorderThickness),
+                        BorderFactory.createEmptyBorder(normalPadY, normalPadX, normalPadY, normalPadX)))
+            }
+
             return tagLabel
         }
     }
@@ -2941,6 +2995,7 @@ void loadPanelPreferences() {
     } catch (Throwable t) {
     }
      rtlMode = isRtlMode()
+     selectionBorderThickness = loadSelectionBorderThickness()
 }
 
 boolean isCloseAfterInsert() {
@@ -4477,12 +4532,28 @@ void showOptionsDialog() {
     
     styleRow.add(styleCombo)
     content.add(leftAligned(styleRow))
+
+    // ===== Selection border thickness =====
+        JPanel borderRow = transparentPanel(new FlowLayout(FlowLayout.LEFT, 6, 0))
+        borderRow.add(new JLabel("Selection border (px):"))
+        JSpinner borderSpinner = new JSpinner(
+                new SpinnerNumberModel(selectionBorderThickness, 1, 12, 1))
+        borderSpinner.setName("UnifiedTagPanelSelectionBorderSpinner")
+        borderSpinner.setPreferredSize(new Dimension(80, 28))
+        borderSpinner.addChangeListener({ javax.swing.event.ChangeEvent ev ->
+            applySelectionBorderThickness((int) borderSpinner.getValue())
+        } as javax.swing.event.ChangeListener)
+        borderRow.add(borderSpinner)
+        content.add(leftAligned(borderRow))
     // ===== Footnote =====
     content.add(Box.createVerticalStrut(10))
     JLabel footnote = new JLabel("<html><i>Colors apply to tags created in this panel.<br>"
             + "Tags made elsewhere in Freeplane keep its own default.</i></html>")
     footnote.setFont(footnote.getFont().deriveFont((float) (panelTextFontSize - 3)))
     content.add(leftAligned(footnote))
+
+    
+
 
     // ===== Close button =====
     JButton closeButton = new JButton("Close")
