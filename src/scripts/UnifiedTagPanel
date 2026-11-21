@@ -12,11 +12,15 @@ SPDX-License-Identifier: GPL-2.0-or-later
 // (at your option) any later version.
 
 // @ExecutionModes({ON_SINGLE_NODE="/menu_bar/aaa/tags"})
+//اطلاع رسانی:
 
 
 تغییرات
+v2.9 
+جستجو میان هاید ها هم اتفاق می افتدبعد از کلیر کردن کادر فیلتر هاید می شود مواردی که امار صفر دارند
 v2.8
-زیبا سازی درخت
+زیبا سازی درخت 
+تمیز کاری آموزش
 v2.7
 بزرگ تر کردن عرض دستگیره
 v2.6
@@ -1838,7 +1842,11 @@ int directUsageOf(String qn) {
 int categoryUsageOf(String qn) {
     return qn == null ? 0 : (categoryUsage.get(qn) ?: 0)
 }
-
+// آیا الان باید تگ‌های بی‌استفاده پنهان شوند؟
+// وقتی کاربر چیزی جستجو می‌کند، پنهان‌سازی موقتاً کنار می‌رود
+boolean shouldHideUnused() {
+    return hideUnusedTags && filterText.trim().isEmpty()
+}
 boolean isTagUnused(String qn) {
     return categoryUsageOf(qn) == 0
 }
@@ -1874,10 +1882,10 @@ void buildFlatUsageRows(DefaultMutableTreeNode root, def state, String needle) {
                      color: item.color, uncategorized: true])
     }
 
-    entries = entries.findAll { entry ->
-        (!hideUnusedTags || categoryUsageOf((String) entry.qn) > 0) &&
-                (needle.isEmpty() || foldAccents(((String) entry.qn).toLowerCase()).contains(needle))
-    }
+        entries = entries.findAll { entry ->
+            (!shouldHideUnused() || categoryUsageOf((String) entry.qn) > 0) &&
+                    (needle.isEmpty() || foldAccents(((String) entry.qn).toLowerCase()).contains(needle))
+        }
     entries.sort { a, b ->
         int byUsage = categoryUsageOf((String) b.qn) <=> categoryUsageOf((String) a.qn)
         byUsage != 0 ? byUsage : ((String) a.qn).compareToIgnoreCase((String) b.qn)
@@ -2491,10 +2499,10 @@ void refreshTree(boolean force) {
             if (child != null) newRoot.add(child)
         }
 
-        List uncategorizedMatches = state.uncategorizedTags.findAll { item ->
-            (!hideUnusedTags || categoryUsageOf(item.qualifiedName) > 0) &&
-                    (pruningNeedle.isEmpty() || foldAccents(item.qualifiedName.toLowerCase()).contains(pruningNeedle))
-        }
+                List uncategorizedMatches = state.uncategorizedTags.findAll { item ->
+                    (!shouldHideUnused() || categoryUsageOf(item.qualifiedName) > 0) &&
+                            (pruningNeedle.isEmpty() || foldAccents(item.qualifiedName.toLowerCase()).contains(pruningNeedle))
+                }
         if (!uncategorizedMatches.isEmpty()) {
             DefaultMutableTreeNode bucket = new DefaultMutableTreeNode(
                     new TagRow(name: "uncategorized", synthetic: true, qualifiedName: null))
@@ -2574,7 +2582,7 @@ void refreshTree(boolean force) {
     } else if (showUsageCounts) {
         int unused = countUnusedTags(state)
         showStatus(total + " tags" + (unused > 0 ? " · " + unused + " unused" : "") +
-                (hideUnusedTags ? " (unused hidden)" : "") +
+                (shouldHideUnused() ? " (unused hidden)" : "") +
                 (isSortByUsage() ? " · by usage" : ""))
     } else {
         showStatus(total + " tags")
@@ -2588,7 +2596,7 @@ void refreshTree(boolean force) {
 
 DefaultMutableTreeNode buildCategoryNode(def cat, String needle) {
     boolean selfMatches = needle.isEmpty() || foldAccents(cat.qualifiedName.toLowerCase()).contains(needle)
-    if (hideUnusedTags && categoryUsageOf(cat.qualifiedName) == 0) return null
+        if (shouldHideUnused() && categoryUsageOf(cat.qualifiedName) == 0) return null
 
     List<DefaultMutableTreeNode> children = []
     cat.children.each { child ->
