@@ -16,6 +16,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 
 تغییرات
+v3.0
+فوکوس کادر جستجو با زدن اسپیس یا فاصله 
 v2.9 
 جستجو میان هاید ها هم اتفاق می افتدبعد از کلیر کردن کادر فیلتر هاید می شود مواردی که امار صفر دارند
 v2.8
@@ -1418,7 +1420,8 @@ void createTagPanel() {
 
     bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
             KeyEvent.VK_ESCAPE, 0, "closeUnifiedTagPanel", { closePanel() })
-
+    bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
+            KeyEvent.VK_SPACE, 0, "focusFilterFieldPanel", { focusFilterField() })
     // Keyboard shortcuts for reordering (always available, no edit mode needed)
     bindKey(tagPanel, JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
             KeyEvent.VK_UP, InputEvent.ALT_DOWN_MASK, "tagMoveUp", { moveSelectedTag('up') })
@@ -2368,7 +2371,7 @@ JComponent createTreeArea() {
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_ENTER, 0,
             "toggleSelectedTag", { toggleAllSelectedTagsOnSelection() })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_SPACE, 0,
-            "toggleSelectedTagSpace", { toggleAllSelectedTagsOnSelection() })
+            "focusFilterFieldSpace", { focusFilterField() })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_F2, 0,
             "renameSelectedTag", { startRename() })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_INSERT, 0,
@@ -2783,7 +2786,12 @@ void selectRowByQn(String qn) {
     tagTree.setSelectionPath(path)
     scrollPathVertically(path)
 }
-
+void focusFilterField() {
+    if (filterField == null) return
+    if (tagTree != null && tagTree.isEditing()) return   // وسط تغییر نام دخالت نکن
+    filterField.requestFocusInWindow()
+    filterField.setCaretPosition(filterField.getText().length())
+}
 void moveTreeSelection(int delta) {
     // ===== اعمال فیلتر قبل از پیمایش =====
     applyFilterText()
