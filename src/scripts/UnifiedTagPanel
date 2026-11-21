@@ -2,8 +2,32 @@
 ORIGINAL CODE BY: euu2021 (Github)
  Copyright (C) 2026  aaa1386 (Github) - based on euu2021's original work
 SPDX-License-Identifier: GPL-2.0-or-later
+//Related to: https://github.com/freeplane/freeplane/discussions/2953
+
+// Copyright (c) 2026 euu2021
+// SPDX-License-Identifier: GPL-2.0-or-later
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 2 of the License, or
+// (at your option) any later version.
+
+// @ExecutionModes({ON_SINGLE_NODE="/menu_bar/aaa/tags"})
+
 
 تغییرات
+v2.8
+زیبا سازی درخت
+v2.7
+بزرگ تر کردن عرض دستگیره
+v2.6
+تغییر عرض روان وقتی اوتو اکستند خاموش است 
+v2.5
+هنگامی که چیزی فیلتر شده است دکمه های آلت و جهتی برای تغییر مکان از کار انداختم ولی دراگ دراپ عمل می کند
+v2.4
+اضافه کردن قابلیت جمع کردن کامل سطح اول با فشردن یک دکمه جهتی اضافه 
+v2.3
+اسکرول بار منتهی الیه سمت راست 
+v2.2 الان  با کلیک چپ روی موارد مطلوب باعث اعمال تگ به گره انتخاب شده می شود
 V2.1
 حل مشکل ناپدید شدن متن ابتدای تگ هنگام هاور روی تگ
 تغییر رنگ و ضخامت نوار در حالت انتخاب گره در تنظیمات 
@@ -59,16 +83,6 @@ Added:
 The ⚡ Add Child (Fast) option is especially useful for large maps with many nodes because it creates new tags without the delay experienced by the standard Add Child Tag (Insert) method, which can become noticeably slower on large maps.
 */
 
-// Copyright (c) 2026 euu2021
-// SPDX-License-Identifier: GPL-2.0-or-later
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 2 of the License, or
-// (at your option) any later version.
-
-
-// @ExecutionModes({ON_SINGLE_NODE="/menu_bar/aaa/tags"})
-
 
 /***************************************************************************
 
@@ -87,88 +101,242 @@ The ⚡ Add Child (Fast) option is especially useful for large maps with many no
    - structure: mindMap.tagCategories.edit(MapTagCategoryInstructionRequest)
                 (each edit = one undo step; node tags are rewritten along)
 
- The panel is an overlay on the map (like SearchPanel.groovy), anchored to the
- TOP-RIGHT corner of the tab — SearchPanel owns the top-left. By default it attaches to
- the tab it was launched on and stays there; turn on "Show on every tab" in Options… and
- the SAME panel moves to whatever tab becomes active, so it is always on screen.
+ The panel is an overlay on the map, anchored to the TOP-RIGHT corner of the tab.
+ By default it stays on the tab it was launched on; turn on "Show on every tab" in
+ Options… and the SAME panel follows you to whichever tab becomes active.
 
- Usage:
-   - launch the script       -> TOGGLES the panel on the current map: opens it (with the
-                                focus already in the filter field), or hides it if it is
-                                open. Hiding remembers the expansion, the filter text and
-                                the wide/edit modes, so showing it again resumes where you
-                                were. Bind it to a shortcut to flick the panel in and out.
-   - type in the field       -> live search, accent-insensitive, with the typed text
-                                HIGHLIGHTED inside every row that carries it
-   - ▼ / ▽ next to the field -> the two search modes of issue #2926: ▼ filters (the tags
-                                that do not match are hidden, matches auto-expand) and ▽
-                                only highlights (nothing is hidden, the structure and the
-                                scroll position stay put, and just the paths leading to a
-                                match are opened). ▼ is the default.
-   - ENTER in the field      -> assigns the best match to the selected node(s);
-                                if nothing matches, CREATES the typed tag (use :: for
-                                categories) and assigns it — the Edit-Tags workflow
-   - Ctrl+ENTER              -> always creates the typed tag, even if something matches
-   - ↑ / ↓ in the field      -> walk the tag-tree selection without leaving the field,
-                                stopping ONLY on tags that match what was typed: the
-                                ancestor categories drawn above a nested match are skipped.
-                                Under a filter the selection starts on the first match, so
-                                what ENTER will assign is always visible.
-   - click a tag             -> toggles it on the selected node(s)  [✓ = on all,
-                                ◐ = on some]. Clicks on the expand handle still fold.
-   - favorites strip         -> the row of chips under the filter field: the tags pinned
-                                in THIS map. Click a chip to toggle it on the selected
-                                node(s); right-click for assign/remove, reorder, show in
-                                the tree, or unpin. Pin a tag from its context menu in the
-                                tree (★), or by dragging it onto the strip in edit mode.
-                                Favorites are stored IN THE MAP FILE (mindMap.storage),
-                                the same place and lifecycle as the tags themselves, and
-                                they follow the tags through renames and moves made here.
-   - ✎ on the title bar      -> EDIT MODE: clicks only select (no toggling), so the
-                                hierarchy can be reorganized without side effects; and
-                                DRAG & DROP reorganizes the tree — drop ON a tag to nest
-                                under it, BETWEEN tags to position among siblings, on the
-                                uncategorized bucket to uncategorize a leaf, or drag an
-                                uncategorized tag into the tree to categorize it
-                                (drag is disabled while a filter is active)
-   - Alt+↑/↓                 -> move tag among siblings   (field or tree focused)
-   - Alt+←                   -> promote (become sibling of its parent)
-   - Alt+→                   -> demote (become child of the previous sibling)
-   - F2                      -> rename inline (tree focused)
-   - Insert                  -> add child tag (tree focused)
-   - Delete pressed twice    -> delete the tag from the map (the key arms on the first
-                                press so a stray Delete costs nothing; the context menu's
-                                Delete acts at once — picking it is already deliberate) (tree focused)
-   - Sort by usage           -> a second ordering, off by default (the normal one is the
-                                map's own tag tree). Turned on from the context menu, the
-                                category NESTING disappears: every tag becomes one row,
-                                labelled with its qualified name, most used first. Handy to
-                                see what you actually use; reordering (Alt+arrows, drag) is
-                                off while it is on, since the rows are no longer siblings.
-   - usage counts            -> each tag shows how many nodes carry it: "urgent (5)".
-                                A category with subtags shows "own/whole category" —
-                                "work (2/17)". A tag nobody uses shows (0) and is painted
-                                faded, so it is safe to prune. The counts update live.
-   - right-click             -> context menu: assign/remove, favorites, rename, add child,
-                                delete, set/reset color, move ops, filter the MAP
-                                by the tag (with folding restored on clear), the
-                                usage commands "Hide unused tags" / "Delete all unused
-                                tags", and the "Close after insert" option
-   - Show on every tab       -> OFF by default. On, the panel moves to the tab you switch
-                                to (one panel, one state — not a copy per tab), reloading
-                                the tags and the favorites of the map it lands on.
-   - Close after insert      -> ON by default: assigning a tag hides the panel and hands
-                                the focus back to the map, so the whole gesture is
-                                trigger → type → ENTER. Removing a tag never closes it.
-                                It is a PROFILE preference (it has to outlive the panel it
-                                closes), shared by every map, and it is remembered.
-   - « on the title bar      -> pin the panel wide, ignoring hover (it grows leftwards,
-                                since the panel hangs on the right edge); » restores it
-   - ✕ / ESC                 -> close (also clears the map filter it applied)
+ =========================================================================
+ 1. OPENING AND CLOSING
+ 
+   - Launch the script   -> TOGGLES the panel: opens it (focus is already in the
+                            filter field) or hides it if it is open. Closing
+                            remembers the expansion, the filter text and the wide
+                            mode, so reopening resumes where you left off.
+                            Bind the script to a shortcut to flick it in and out.
+   - ─  (title bar)      -> minimize: hides the panel and leaves a small floating
+                            "T" button at the top of the window. Click it to
+                            restore. Right-click it for Restore / Close Panel.
+   - ✕ or ESC            -> close the panel (also clears the map filter it applied).
+   - Mouse hover         -> the panel is narrow when idle and widens while the mouse
+                            is over it, a popup is open or the focus is inside it.
+
+ =========================================================================
+ 2. WIDTH
+ 
+   - «  (title bar)      -> pin the panel wide, ignoring hover. It grows leftwards
+                            because the panel hangs on the right edge.
+   - »                   -> restore the normal (auto) width.
+   - Resize handle       -> in wide mode, drag the left edge of the panel to set
+                            your own width. It is saved and remembered.
+
+ =========================================================================
+ 3. SEARCHING
+ 
+   - Type in the field   -> live search, accent-insensitive. The typed text is
+                            HIGHLIGHTED inside every matching row.
+   - ▼ / ▽ button        -> the two search modes:
+                              ▼ filter: tags that do not match are hidden and
+                                matches are auto-expanded (default).
+                              ▽ highlight only: nothing is hidden; the structure
+                                and scroll position stay, and only the paths to
+                                matches are opened.
+   - ⌫ button            -> clear the filter.
+   - ↑ / ↓ in the field  -> walk through the matches without leaving the field.
+                            Parent categories that do not match are skipped.
+   - Ctrl+↑ / Ctrl+↓     -> same, also usable when the tree has focus.
+
+ =========================================================================
+ 4. ASSIGNING TAGS TO NODES
+
+   Select one or more nodes in the map first. Then:
+   - ENTER in the field  -> assigns the best match (the selected row, or the first
+                            match) to the selected node(s). If nothing matches, it
+                            CREATES the typed tag and assigns it. Use :: for
+                            categories, e.g.  work::urgent
+   - Ctrl+ENTER          -> always creates the typed tag, even if something matches.
+   - Click a tag         -> toggles it on the selected node(s).
+                            ✓ = the tag is on all selected nodes
+                            ◐ = the tag is on some of them
+   - ENTER / SPACE on a
+     selected row        -> same toggle, from the keyboard.
+   - Right-click         -> "Assign to selected node(s)" only ADDS;
+                            "Remove from selected node(s)" only REMOVES.
+   - Drag a tag onto a
+     node in the map     -> assigns the tag to that node.
+   - Close after insert  -> ON by default: after a tag is assigned the panel hides
+                            and the focus returns to the map, so the whole gesture
+                            is  trigger → type → ENTER. Removing a tag never closes
+                            it. Switch it in Options… or in the right-click menu.
+                            It is saved in your profile and shared by every map.
+
+ =========================================================================
+ 5. MULTIPLE SELECTION
+
+   - Click               -> select one tag.
+   - Ctrl+Click or
+     Shift+Click         -> add/remove a tag from the selection.
+   - Shift+↑ / Shift+↓   -> add/remove the neighbouring tag (toggle).
+   - Click on empty space-> clears the selection.
+   - Right-click on a selection -> group menu: assign all, remove all, delete all.
+   - Hover               -> moving the mouse over a tag selects it. While several
+                            tags are selected, or Ctrl/Shift is held, hover is off.
+
+ =========================================================================
+ 6. KEYBOARD NAVIGATION IN THE TREE
+
+   - ↑ / ↓               -> previous / next row.
+   - Collapse key        -> ONE press does this, in order:
+                              1. open branch: closes it
+                              2. closed branch or leaf (not top level): selects
+                                 its parent
+                              3. top level: collapses ALL top-level branches
+   - Expand key          -> closed branch: opens it; open branch: selects its
+                            first child.
+                            In RTL layout the collapse key is → and the expand key
+                            is ←. In LTR layout it is the other way round.
+
+ =========================================================================
+ 7. ORGANIZING THE TAG TREE
+
+   Moving with the keyboard (works on one tag, or on a group of selected tags
+   that are on the same level and next to each other, moved as one block):
+   - Alt+↑ / Alt+↓       -> move among siblings.
+   - Promote / Demote    -> Alt+← and Alt+→ (see below which does which).
+                              LTR layout: Alt+← = promote (become a sibling of
+                                          the parent), Alt+→ = demote (become a
+                                          child of the previous sibling).
+                              RTL layout: the two are swapped, so the arrows
+                                          always match the mirrored tree.
+   - While a filter is active, moving with Alt+arrows is limited or disabled,
+     because hidden siblings make the result unpredictable. Use drag & drop.
+   - Uncategorized tags have no manual order and cannot be moved this way.
+
+   Moving with the mouse (drag & drop, always available, also under a filter):
+   - Drop ON a tag       -> becomes its child.
+   - Drop BETWEEN tags   -> becomes a sibling at that position.
+   - Drop on the "uncategorized" header -> uncategorizes a tag that has no subtags.
+   - Drag an uncategorized tag into the tree -> categorizes it.
+   - Drag a tag onto the favorites strip -> pins it as a favorite.
+   - Drag & drop is off while "Sort by usage" is on (rows are not siblings then).
+
+   Other editing keys:
+   - F2                  -> rename inline.
+   - Insert              -> add a child tag.
+   - Delete (twice)      -> deletes the tag from the map. The first press only
+                            arms it (red border), the second deletes. The
+                            right-click "Delete" acts at once.
+   Every structure edit is ONE undo step: Ctrl+Z in the map undoes it, and the
+   tags on the nodes are rewritten along with it.
+
+ =========================================================================
+ 8. COLORS
+
+   - Right-click → "Set color…" / "Reset color to default".
+   - For a category with subtags: "Set color for this and all sub-tags…" and
+     "Recolor sub-tags to match this category".
+   - Options… → "New tags" decides the color of tags created in this panel:
+       Freeplane default (color derived from the name),
+       Inherit from the parent category,
+       Fixed color (one color you pick).
+     This applies only to tags created here.
+   - Moving a tag to a new parent in "Inherit" mode recolors it to the new
+     parent. If the tag has subtags, a dialog asks whether to apply the parent
+     color or keep the previous one. "Don't ask again" lasts until the script
+     is reloaded. Tags without subtags follow the parent without asking.
+   - An uncategorized tag moved into the tree gets the default blue; a tag moved
+     to the top level from inside the tree keeps its color.
+
+ =========================================================================
+ 9. FAVORITES
+
+   The row of chips under the filter field holds the tags pinned in THIS map.
+   - Click a chip        -> toggles the tag on the selected node(s).
+   - Right-click a chip  -> assign / remove, show in the tree, move left/right,
+                            or unpin.
+   - Pin a tag           -> right-click it in the tree → "Add to favorites ★",
+                            or drag it onto the strip.
+   Favorites are stored IN THE MAP FILE, next to the tags themselves, and follow
+   the tags through renames and moves made in this panel. A chip with a red
+   border names a tag that no longer exists; clicking it recreates it.
+
+ =========================================================================
+ 10. USAGE COUNTS AND CLEAN-UP
+ 
+   - Counts              -> each tag shows how many nodes carry it: "urgent (5)".
+                            A category with subtags shows "own/whole category",
+                            e.g. "work (2/17)". Counts update live.
+   - Unused tags         -> a tag nobody uses shows (0) and is painted faded.
+   - Hide unused tags    -> right-click menu: hides all unused tags.
+   - Delete all unused tags -> right-click menu: deletes them in one undo step.
+   - Sort by usage       -> right-click menu: the category nesting disappears and
+                            every tag becomes one row (full name), most used first.
+                            Off by default. Reordering and drag & drop are off
+                            while it is on.
+   - Show usage counts   -> can be turned off in Options….
+
+ =========================================================================
+ 11. EXTRA TOOLS (right-click menu and buttons)
+ 
+   - ⚡ Add Child Tag (Fast) -> a small dialog: click a parent tag in the tree,
+                            type a child name, press Enter. Much faster than
+                            Insert on large maps. The tag is registered on the map
+                            through a temporary assignment to the selected node.
+   - 🔀 Merge / Assign    -> a small dialog: click a SOURCE tag, then a TARGET tag.
+                              Merge:  nodes with the source get the target and
+                                      lose the source.
+                              Assign: nodes that have the TARGET also get the
+                                      SOURCE (both are kept).
+   - ➕ Add Tag (Uncategorized) -> creates a tag in the uncategorized bucket
+                            without assigning it to any node.
+   - 📍 Locate Tag        -> toggles a locator: click a tag icon on a node in the
+                            map and the tree jumps to that tag. Click again in the
+                            menu to turn it off.
+   - Filter map by this tag -> shows only the nodes carrying the tag (and its
+                            subtags). "Clear the map filter" restores the map and
+                            its previous folding. Closing the panel clears it too.
+
+ =========================================================================
+ 12. OPTIONS… (right-click → Options…)
+
+   - New tags            -> color policy (see section 8).
+   - Close after insert  -> see section 4.
+   - Right-to-left layout (RTL) -> mirrors the tree. In RTL the horizontal scroll
+                            bar stays stuck to the right edge until you drag it
+                            away yourself. Scrolling with the arrow keys never
+                            moves it sideways.
+   - Show on every tab   -> off by default. When on, the one panel moves to the
+                            tab you switch to and loads that map's tags and
+                            favorites. In a split view only the focused view has it.
+   - Show usage counts   -> see section 10.
+   - Row height          -> in pixels; 0 = automatic.
+   - Font, size, style   -> font used by the whole panel.
+   - Selection border    -> thickness of the green frame around selected rows.
+   All options are saved in your Freeplane profile.
+
+ =========================================================================
+ 13. APPEARANCE
+
+   - The tree is drawn with connecting lines and ⊞ / ⊟ boxes (like a folder tree):
+     ⊞ (+) = collapsed branch, ⊟ (−) = expanded branch. Click the box to fold or
+     unfold. Top-level rows are joined by one vertical line.
+   - Settings at the top of the script: treeBoxScale (box size relative to the
+     font), treeSymbolThickness (thickness of + and −, odd number), rowGapPx
+     (small gap between rows), resizeGripWidth (width of the resize handle).
+
+ =========================================================================
+ QUICK START
+
+   1. Select a node in the map and launch the script.
+   2. Type a tag name. Enter assigns the best match, or creates the tag if it
+      does not exist (use work::urgent for a category).
+   3. The panel closes by itself (Close after insert) and you are back in the map.
+   4. To tidy the tags: open the panel, drag tags onto each other, rename with F2,
+      and recolor from the right-click menu.
 
  *****************************************************************/
-import groovy.transform.Field
 
+import groovy.transform.Field
+import javax.swing.plaf.basic.BasicTreeUI
 import org.freeplane.api.MapTagCategoryInstruction
 import org.freeplane.api.MapTagCategoryInstructionRequest
 import org.freeplane.api.MapTagCategoryInstructionType
@@ -228,7 +396,8 @@ import java.util.List
 /*
  ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ User settings ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
 */
-
+@Field float treeBoxScale = 0.7f      // اندازه‌ی جعبه نسبت به قلم
+@Field int treeSymbolThickness = 1    // ضخامت + و - (عدد فرد)
 // Merge panel variables
 @Field JDialog mergePanel = null
 @Field JTextField sourceField = null
@@ -255,6 +424,9 @@ import java.util.List
 
 @Field int customWideWidthPx = 0
 @Field JPanel resizeGrip = null 
+@Field boolean resizeDragging = false
+// عرض ناحیه‌ی قابل‌گرفتن برای تغییر عرض پنل (پیکسل)
+@Field int resizeGripWidth = 16
 @Field int retractDelayMs = 400
 @Field int refreshCoalesceMs = 150
 // Rebuilding the tree costs ~1 ms per row (MEASURED: ~9 ms for 9 rows, ~45 ms for 54),
@@ -338,6 +510,8 @@ import java.util.List
 @Field final int rowTextPaddingX = 8   // پدینگ افقی پایه (وقتی حاشیه ۲ است)
 @Field final int rowTextPaddingY = 1   // پدینگ عمودی پایه
 @Field final int rowNormalBorderThickness = 2  // ضخامت حاشیه‌ی عادی (غیر انتخاب‌شده)
+// فاصله‌ی عمودی بین ردیف‌ها درخت  (پیکسل، بالا و پایین هر ردیف به‌طور مساوی)
+@Field int rowGapPx = 2
 /*
  ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ User settings ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 */
@@ -486,7 +660,10 @@ import java.util.List
 @Field String markAll = "✓"
 @Field String markSome = "◐"
 @Field String favoriteSymbol = "★"
-
+// چسبیدن اسکرول افقی به راست در حالت RTL
+@Field boolean stickRight = true            // true = اسکرول افقی باید در انتهای راست بماند
+@Field boolean programmaticScrollH = false  // اسکرولی که خود اسکریپت انجام می‌دهد
+@Field boolean userTouchingScrollH = false  // کاربر دارد با ماوس اسکرول افقی را می‌کشد
 @Field String draggedTagQn = null
  @Field boolean hoverSuppressed = false
 // وضعیت کادر هشدار «تغییر رنگ شاخه هنگام جابه‌جایی»
@@ -597,8 +774,53 @@ class PanelViewChangeRelay implements IMapViewChangeListener {
     Closure handler
     @Override void afterViewChange(Component oldView, Component newView) { handler.call(newView) }
 }
+// آیکون ⊞ / ⊟ شبیه Scrivener
+class BoxToggleIcon implements Icon {
+    boolean expanded
+    int size
+    Color line
+    Color fill
+    Color symbol
+    int thickness
 
+    BoxToggleIcon(boolean expanded, int size, Color line, Color fill, Color symbol, int thickness) {
+        this.expanded = expanded
+        this.size = size
+        this.line = line
+        this.fill = fill
+        this.symbol = symbol
+        this.thickness = thickness
+    }
 
+    int getIconWidth() { return size }
+    int getIconHeight() { return size }
+
+    void paintIcon(Component c, Graphics g, int x, int y) {
+        Graphics2D g2 = (Graphics2D) g.create()
+        try {
+            g2.setColor(fill)
+            g2.fillRect(x, y, size - 1, size - 1)
+            g2.setColor(line)
+            g2.drawRect(x, y, size - 1, size - 1)
+
+            int mid = size.intdiv(2)
+            int pad = Math.max(2, size.intdiv(4))
+            //int pad = 2                //بن: تنظیمات فاصله‌ی علامت از لبه‌ی جعبه (ثابت)
+            //به جای خط بالاتر قرار دادن
+            int thick = Math.max(1, thickness)
+            if (thick % 2 == 0) thick++          // فرد، تا دقیقاً وسط بیفتد
+            int t2 = thick.intdiv(2)
+
+            g2.setColor(symbol)
+            g2.fillRect(x + pad, y + mid - t2, size - 2 * pad, thick)             // علامت -
+            if (!expanded) {
+                g2.fillRect(x + mid - t2, y + pad, thick, size - 2 * pad)         // خط عمودی +
+            }
+        } finally {
+            g2.dispose()
+        }
+    }
+}
 /*
  ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ Main code ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
 */
@@ -618,7 +840,7 @@ void applyRtlMode(boolean rtl) {
         showStatus("Could not save the option: " + t.getMessage())
     }
     rtlMode = rtl
-
+    stickRight = true 
     if (tagTree != null) {
         tagTree.setComponentOrientation(
                 rtl ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT)
@@ -636,7 +858,7 @@ void applyRtlMode(boolean rtl) {
         treeScrollPane.revalidate()
         treeScrollPane.repaint()
     }
-
+     stickToRightIfNeeded()
     showStatus(rtl ? "Right-to-left layout" : "Left-to-right layout")
 }
 
@@ -1253,7 +1475,6 @@ void createResizeGrip() {
 
     final int[] dragStartX = [0]
     final int[] dragStartWidth = [0]
-    final boolean[] dragging = [false]
 
     resizeGrip.addMouseListener(new MouseAdapter() {
         @Override
@@ -1261,13 +1482,18 @@ void createResizeGrip() {
             if (!wideMode) return
             dragStartX[0] = e.getXOnScreen()
             dragStartWidth[0] = tagPanel.getWidth()
-            dragging[0] = true
+            resizeDragging = true
+            if (resizeAnimationTimer != null) {
+                resizeAnimationTimer.stop()
+                resizeAnimationTimer = null
+            }
+            retractTimer.stop()
         }
 
         @Override
         void mouseReleased(MouseEvent e) {
-            if (!dragging[0]) return
-            dragging[0] = false
+            if (!resizeDragging) return
+            resizeDragging = false
             saveWideWidthPx(tagPanel.getWidth())
             showStatus("Panel width saved: " + tagPanel.getWidth() + " px")
         }
@@ -1276,14 +1502,15 @@ void createResizeGrip() {
     resizeGrip.addMouseMotionListener(new MouseMotionAdapter() {
         @Override
         void mouseDragged(MouseEvent e) {
-            if (!wideMode || !dragging[0]) return
-            // پنل روی لبه راست لنگر انداخته، پس کشیدن به چپ عرض را زیاد می‌کند
+            if (!wideMode || !resizeDragging) return
+            // پنل روی لبه‌ی راست لنگر انداخته: کشیدن به چپ عرض را زیاد می‌کند
             int delta = dragStartX[0] - e.getXOnScreen()
-            int newWidth = dragStartWidth[0] + delta
             int maxWidth = (int) (boundScrollPane.getViewport().getWidth() * 0.85)
-            newWidth = Math.max(120, Math.min(newWidth, maxWidth))
+            int newWidth = Math.max(120, Math.min(dragStartWidth[0] + delta, maxWidth))
+            if (newWidth == tagPanel.getWidth()) return
+            // عرض را همین الان نگه دار تا هیچ فراخوانی دیگری آن را برنگرداند
+            customWideWidthPx = newWidth
             applyPanelBounds(newWidth)
-            showStatus("Width: " + newWidth + " px")
         }
     })
 
@@ -1816,19 +2043,21 @@ JLabel favoriteChip(String qn) {
     chip.setToolTipText(known ? qn : qn + " — no longer in this map (clicking recreates it)")
     applyChipText(chip)
 
+    def script = this   // ← مرجع صریح به نمونه‌ی اسکریپت
+
     chip.addMouseListener(new MouseAdapter() {
         @Override
         void mousePressed(MouseEvent e) {
             if (e.isPopupTrigger()) {
-                showFavoriteMenu(chip, qn, e)
+                script.showFavoriteMenu(chip, qn, e)
                 return
             }
-            if (SwingUtilities.isLeftMouseButton(e)) toggleTagQn(qn)
+            if (SwingUtilities.isLeftMouseButton(e)) script.toggleTagQn(qn)
         }
 
         @Override
         void mouseReleased(MouseEvent e) {
-            if (e.isPopupTrigger()) showFavoriteMenu(chip, qn, e)
+            if (e.isPopupTrigger()) script.showFavoriteMenu(chip, qn, e)
         }
     })
     chip.addMouseListener(hoverListener)
@@ -1895,6 +2124,13 @@ JComponent createTreeArea() {
         Dimension getPreferredScrollableViewportSize() {
             return getPreferredSize()
         }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            // اول خطوط، بعد خود ردیف‌ها و جعبه‌ها (که روی خطوط می‌نشینند)
+            paintTreeConnectors(g, this)
+            super.paintComponent(g)
+        }
     }
     tagTree.setRootVisible(false)
     tagTree.setShowsRootHandles(true)
@@ -1909,11 +2145,12 @@ JComponent createTreeArea() {
                 if (tagTree.getSelectionCount() <= 1) {
                     hoverSuppressed = false
                 }
+                stickToRightIfNeeded()
             }
         })
     tagTree.setToggleClickCount(0)
     tagTree.setCellRenderer(createTagRenderer())
-
+    installTreeLineStyle()
     tagTree.setComponentOrientation(
         rtlMode ? ComponentOrientation.RIGHT_TO_LEFT : ComponentOrientation.LEFT_TO_RIGHT)
 
@@ -1955,7 +2192,7 @@ JComponent createTreeArea() {
                     int current = tagTree.getLeadSelectionRow()
                     int next = current < 0 ? 0 : Math.min(current + 1, rows - 1)
                     tagTree.setSelectionRow(next)
-                    tagTree.scrollRowToVisible(next)
+                    scrollRowVertically(next)
                 }
             })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_UP, 0,
@@ -1965,7 +2202,7 @@ JComponent createTreeArea() {
                     int current = tagTree.getLeadSelectionRow()
                     int prev = current < 0 ? rows - 1 : Math.max(current - 1, 0)
                     tagTree.setSelectionRow(prev)
-                    tagTree.scrollRowToVisible(prev)
+                    scrollRowVertically(prev)
                 }
             })
 
@@ -1984,6 +2221,8 @@ JComponent createTreeArea() {
             "tagDemote", { moveSelectedTag(rtlMode ? 'demote' : 'promote') })
     bindKey(tagTree, JComponent.WHEN_FOCUSED, KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK,
             "tagPromote", { moveSelectedTag(rtlMode ? 'promote' : 'demote') })
+
+    installCollapseKeys()
 
     // ===== Shift+↑/↓ برای گسترش انتخاب =====
     // WHEN_FOCUSED: وقتی خود JTree فوکوس دارد
@@ -2181,7 +2420,7 @@ JComponent createTreeArea() {
             }
         }
     })
-
+    installRightStickyScroll()
     return treeScrollPane
 }
 /*
@@ -2291,14 +2530,14 @@ void refreshTree(boolean force) {
                 tagTree.expandPath(parentPath)
             }
             tagTree.setSelectionPath(path)
-            tagTree.scrollPathToVisible(path)
+            scrollPathVertically(path)
         } else {
             // If the previous tag no longer exists, select the first row
             if (!needle.isEmpty()) {
                 int first = firstNavigableRow()
                 if (first >= 0) {
                     tagTree.setSelectionRow(first)
-                    tagTree.scrollRowToVisible(first)
+                    scrollRowVertically(first)
                 }
             } else {
                 // If no filter, select the first visible row
@@ -2314,7 +2553,7 @@ void refreshTree(boolean force) {
             if (first >= 0) {
                 if (!selectionFromMap) {
                     tagTree.setSelectionRow(first)
-                    tagTree.scrollRowToVisible(first)
+                    scrollRowVertically(first)
                 }
             }
         } else {
@@ -2344,6 +2583,7 @@ void refreshTree(boolean force) {
     rebuildFavoritesStrip()
     updateAssignedMarks()
     fitPanelBounds()
+    stickToRightIfNeeded()
 }
 
 DefaultMutableTreeNode buildCategoryNode(def cat, String needle) {
@@ -2479,7 +2719,22 @@ TagRow rowOf(TreePath path) {
     Object userObject = ((DefaultMutableTreeNode) last).getUserObject()
     return userObject instanceof TagRow ? (TagRow) userObject : null
 }
+// فقط اسکرول عمودی: ردیف را در دید می‌آورد ولی موقعیت افقی را دست نمی‌زند
+void scrollPathVertically(TreePath path) {
+    if (tagTree == null || path == null) return
+    Rectangle bounds = tagTree.getPathBounds(path)
+    if (bounds == null) return
+    Rectangle visible = tagTree.getVisibleRect()
+    // x و width را برابر ناحیه‌ی قابل‌دید می‌گذاریم تا هیچ اسکرول افقی لازم نشود
+    tagTree.scrollRectToVisible(new Rectangle(
+            (int) visible.x, (int) bounds.y,
+            Math.max(1, (int) visible.width), (int) bounds.height))
+}
 
+void scrollRowVertically(int row) {
+    if (tagTree == null || row < 0 || row >= tagTree.getRowCount()) return
+    scrollPathVertically(tagTree.getPathForRow(row))
+}
 TagRow selectedRow() {
     return rowOf(tagTree != null ? tagTree.getSelectionPath() : null)
 }
@@ -2518,7 +2773,7 @@ void selectRowByQn(String qn) {
     TreePath path = new TreePath(node.getPath())
     tagTree.expandPath(path.getParentPath())
     tagTree.setSelectionPath(path)
-    tagTree.scrollPathToVisible(path)
+    scrollPathVertically(path)
 }
 
 void moveTreeSelection(int delta) {
@@ -2536,7 +2791,7 @@ void moveTreeSelection(int delta) {
         int wrapped = ((candidate % rows) + rows) % rows
         if (isNavigableRow(wrapped)) {
             tagTree.setSelectionRow(wrapped)
-            tagTree.scrollRowToVisible(wrapped)
+            scrollRowVertically(wrapped)
             return
         }
         candidate = wrapped + step
@@ -2704,7 +2959,7 @@ TreeCellRenderer createTagRenderer() {
                         BorderFactory.createEmptyBorder(normalPadY, normalPadX, normalPadY, normalPadX)))
             }
 
-            return tagLabel
+            return wrapWithRowGap(tagLabel)
         }
     }
 }
@@ -2783,7 +3038,7 @@ void updateTreeSelectionFromMap() {
             parentPath = parentPath.getParentPath()
         }
         tagTree.setSelectionPath(path)
-        tagTree.scrollPathToVisible(path)
+        scrollPathVertically(path)
     } else {
         // If the tag is not in the tree (may be filtered),
         // try to find another tag
@@ -2797,7 +3052,7 @@ void updateTreeSelectionFromMap() {
                     parentPath = parentPath.getParentPath()
                 }
                 tagTree.setSelectionPath(path)
-                tagTree.scrollPathToVisible(path)
+                scrollPathVertically(path)
                 break
             }
         }
@@ -2847,7 +3102,28 @@ void toggleTagOnSelection(TagRow row) {
     if (row == null || row.synthetic || row.qualifiedName == null) return
     toggleTagQn(row.qualifiedName)
 }
+void toggleTagQn(String qn) {
+    if (qn == null || qn.isEmpty()) return
+    List<NodeModel> nodes = selectedMapNodes()
+    if (nodes.isEmpty()) {
+        showStatus("No node selected")
+        return
+    }
 
+    boolean allHave = nodes.every { node -> tagsOf(node).contains(qn) }
+
+    nodes.each { nodeModel ->
+        def tags = ProxyFactory.createNode(nodeModel, null).getTags()
+        if (allHave) {
+            if (tags.getTags().contains(qn)) tags.remove(qn)
+        } else {
+            if (!tags.getTags().contains(qn)) tags.add(qn)
+        }
+    }
+
+    updateAssignedMarks()
+    scheduleRefresh()
+}
 void toggleAllSelectedTagsOnSelection() {
     List<TagRow> rows = selectedRows()
     if (rows.isEmpty()) return
@@ -3403,6 +3679,10 @@ void moveSelectedTag(String direction) {
         showStatus("Select a tag first")
         return
     }
+        if (!filterText.isEmpty()) {
+        showStatus("Moving with Alt+arrows is off while a filter is active — drag & drop still works")
+        return
+    }
     if (isSortByUsage()) {
         showStatus("Reordering is off while sorting by usage — switch back to the tree order")
         return
@@ -3484,6 +3764,81 @@ void moveSelectedTag(String direction) {
     // ===== اینجا گروه مثل یک تگ رفتار می‌کند =====
     moveGroupAsSingleTag(group, parentPath, direction)
     refreshTree(true)
+}// یک گام جمع‌کردن با دکمه‌ی جهتی
+void collapseStep() {
+    if (tagTree == null) return
+    TreePath path = tagTree.getLeadSelectionPath()
+    if (path == null) {
+        collapseAllTopLevel()
+        return
+    }
+
+    DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent()
+
+    // 1) شاخه‌ی باز → همان را ببند
+    if (!node.isLeaf() && tagTree.isExpanded(path)) {
+        tagTree.collapsePath(path)
+        return
+    }
+
+    // 2) زیرشاخه‌ی بسته یا برگ → برو روی والد
+    //    (path: [ریشه‌ی نامرئی, سطح اول, ...] پس سطح اول طول ۲ دارد)
+    if (path.getPathCount() > 2) {
+        TreePath parent = path.getParentPath()
+        tagTree.setSelectionPath(parent)
+        scrollPathVertically(parent)
+        return
+    }
+
+    // 3) سطح اول و بسته → همه‌ی سطح اول را ببند
+    collapseAllTopLevel()
+}
+
+void collapseAllTopLevel() {
+    if (tagTree == null || treeRootNode == null) return
+    for (int i = treeRootNode.getChildCount() - 1; i >= 0; i--) {
+        DefaultMutableTreeNode child = (DefaultMutableTreeNode) treeRootNode.getChildAt(i)
+        tagTree.collapsePath(new TreePath(child.getPath()))
+    }
+    showStatus("All top-level branches collapsed")
+}
+
+// یک گام باز کردن با دکمه‌ی جهتی
+void expandStep() {
+    if (tagTree == null) return
+    TreePath path = tagTree.getLeadSelectionPath()
+    if (path == null) return
+
+    DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent()
+    if (node.isLeaf()) return
+
+    // 1) شاخه‌ی بسته → باز کن
+    if (!tagTree.isExpanded(path)) {
+        tagTree.expandPath(path)
+        return
+    }
+
+    // 2) شاخه‌ی باز → برو روی اولین فرزند
+    TreePath firstChild = path.pathByAddingChild(node.getChildAt(0))
+    tagTree.setSelectionPath(firstChild)
+    scrollPathVertically(firstChild)
+}
+
+// دکمه‌ی چپ/راست: در RTL راست جمع می‌کند و چپ باز می‌کند، در LTR برعکس
+void installCollapseKeys() {
+    [KeyEvent.VK_LEFT, KeyEvent.VK_RIGHT].each { int keyCode ->
+        boolean isRightKey = keyCode == KeyEvent.VK_RIGHT
+
+        bindKey(tagTree, JComponent.WHEN_FOCUSED, keyCode, 0,
+                "unifiedCollapseKey" + keyCode, {
+                    boolean collapsesNow = rtlMode ? isRightKey : !isRightKey
+                    if (collapsesNow) {
+                        collapseStep()
+                    } else {
+                        expandStep()
+                    }
+                })
+    }
 }
 void extendSelection(int delta) {
     if (tagTree == null) return
@@ -3512,7 +3867,7 @@ void extendSelection(int delta) {
         tagTree.addSelectionPath(nextPath)
     }
     tagTree.setLeadSelectionPath(nextPath)
-    tagTree.scrollRowToVisible(next)
+    scrollRowVertically(next)
 }
 // تابع کمکی برای جابه‌جایی یک تگ (استفاده‌شده در جابه‌جایی گروهی)
 void moveSingleTag(TagRow row, String direction) {
@@ -4083,7 +4438,7 @@ Map dropPlanFrom(TransferHandler.TransferSupport support) {
 
 Map planDropMove(TagRow dragged, TagRow parentRow, Integer childIndex) {
     if (dragged == null || dragged.synthetic) return null
-    if (!filterText.isEmpty()) return null
+    //if (!filterText.isEmpty()) return null
     if (isSortByUsage()) return null
     String sep = separator()
 
@@ -4110,15 +4465,23 @@ Map planDropMove(TagRow dragged, TagRow parentRow, Integer childIndex) {
     boolean sameParent = !dragged.uncategorized && oldParentQn == parentQn
     if (sameParent) {
         if (childIndex == null) return null
-        DefaultMutableTreeNode parentNode = parentRow == null ? treeRootNode : findNodeByQn(treeRootNode, parentQn)
-        int oldIndex = indexAmongTagChildren(parentNode, dragged.qualifiedName)
-        if (oldIndex >= 0 && (childIndex == oldIndex || childIndex == oldIndex + 1)) return null
+        if (filterText.isEmpty()) {
+            DefaultMutableTreeNode parentNode = parentRow == null ? treeRootNode : findNodeByQn(treeRootNode, parentQn)
+            int oldIndex = indexAmongTagChildren(parentNode, dragged.qualifiedName)
+            if (oldIndex >= 0 && (childIndex == oldIndex || childIndex == oldIndex + 1)) return null
+        }
     }
 
     Integer index = childIndex
     if (index != null) {
-        DefaultMutableTreeNode parentNode = parentRow == null ? treeRootNode : findNodeByQn(treeRootNode, parentQn)
-        index = Math.max(0, Math.min(index, tagChildCount(parentNode)))
+        if (!filterText.isEmpty()) {
+            // درخت فیلترشده است: ایندکس آن با درخت واقعی فرق دارد.
+            // تگ هدف (همان که قرار است بالای آن رها شود) را پیدا کن و ایندکس واقعی‌اش را بگیر.
+            index = realIndexForFilteredDrop(parentRow, childIndex)
+        } else {
+            DefaultMutableTreeNode parentNode = parentRow == null ? treeRootNode : findNodeByQn(treeRootNode, parentQn)
+            index = Math.max(0, Math.min(index, tagChildCount(parentNode)))
+        }
     }
 
     String newQn = (parentPath.isEmpty() ? "" : parentPath.join(sep) + sep) + dragged.name
@@ -4206,7 +4569,31 @@ int tagChildCount(DefaultMutableTreeNode parentNode) {
     }
     return count
 }
+// ایندکس واقعی (در درخت بدون فیلتر) برای رها کردن «بین» تگ‌ها در درخت فیلترشده.
+// childIndex در درخت فیلترشده است؛ تگی که در آن موقعیت قرار دارد را پیدا می‌کنیم
+// و ایندکس واقعی‌اش را از state می‌گیریم. اگر در انتهای لیست رها شده باشد، null (= آخر).
+Integer realIndexForFilteredDrop(TagRow parentRow, int childIndex) {
+    DefaultMutableTreeNode parentNode = parentRow == null ? treeRootNode : findNodeByQn(treeRootNode, parentRow.qualifiedName)
+    if (parentNode == null) return null
 
+    // تگ‌های (غیر synthetic) فرزند در درخت فیلترشده
+    List<TagRow> visible = []
+    for (int i = 0; i < parentNode.getChildCount(); i++) {
+        TagRow r = (TagRow) ((DefaultMutableTreeNode) parentNode.getChildAt(i)).getUserObject()
+        if (!r.synthetic) visible.add(r)
+    }
+    if (childIndex >= visible.size()) return null   // انتهای لیست
+
+    TagRow anchor = visible.get(childIndex)         // به این تگ می‌چسبیم (قبل از آن)
+    try {
+        List<String> parentPath = parentRow == null ? [] : parentRow.path
+        List siblings = childrenAt(readState(), parentPath)
+        int real = siblings.findIndexOf { it.name == anchor.name }
+        return real < 0 ? null : real
+    } catch (Throwable t) {
+        return null
+    }
+}
 int indexAmongTagChildren(DefaultMutableTreeNode parentNode, String qn) {
     if (parentNode == null) return -1
     int index = 0
@@ -5540,6 +5927,7 @@ boolean panelHasFocus() {
 
 void fitPanelBounds() {
     if (tagPanel == null) return
+    if (resizeDragging) return
     boolean stayExpanded = mouseOverPanel || panelHasFocus() || popupOpen ||
             (tagTree != null && tagTree.isEditing())
     int width = wideMode ? wideWidth() : (stayExpanded ? expandedWidth() : retractedWidth())
@@ -5577,7 +5965,8 @@ void animatePanelToWidth(int targetWidth) {
 
 void applyPanelBounds(int width) {
     if (tagPanel == null) return
-    int height = fittedHeight(width)
+    // هنگام کشیدن ارتفاع ثابت می‌ماند تا هر حرکت ماوس layout سنگین نزند
+    int height = resizeDragging ? (int) tagPanel.getHeight() : fittedHeight(width)
     Rectangle viewportBounds = viewportBoundsInHost()
     int x = (viewportBounds.x as int) + (viewportBounds.width as int) - width
     int y = viewportBounds.y as int
@@ -5588,12 +5977,13 @@ void applyPanelBounds(int width) {
         tagPanel.setBounds(x, y, width, height)
     }
 
-    // grip روی لبه چپ پنل (فقط در حالت wide)
+    // grip روی لبه‌ی چپ پنل (فقط در حالت wide)
     if (resizeGrip != null) {
         if (wideMode) {
-            resizeGrip.setBounds(x - 3, y, 6, height)
+            // دستگیره نصف روی لبه‌ی پنل و نصف بیرون آن (روی نقشه) قرار می‌گیرد
+            resizeGrip.setBounds(x - (int) (resizeGripWidth / 2), y, resizeGripWidth, height)
             resizeGrip.setVisible(true)
-            overlayHost.setComponentZOrder(resizeGrip, 0)
+            if (!resizeDragging) overlayHost.setComponentZOrder(resizeGrip, 0)
         } else {
             resizeGrip.setVisible(false)
         }
@@ -5603,6 +5993,7 @@ void applyPanelBounds(int width) {
         overlayHost.revalidate()
         overlayHost.repaint()
     }
+    if (!resizeDragging) stickToRightIfNeeded()
 }
 
 /*
@@ -5667,6 +6058,213 @@ String getTagQualifiedName(def icon) {
     } catch (Throwable t) {
         return null
     }
+}
+// آیا اسکرول افقی الان در انتهای راست است؟ (اگر اسکرول لازم نباشد، true)
+boolean horizontalAtRightEdge() {
+    if (treeScrollPane == null) return true
+    JScrollBar bar = treeScrollPane.getHorizontalScrollBar()
+    return bar.getValue() + bar.getModel().getExtent() >= bar.getMaximum() - 2
+}
+
+// بعد از هر تغییری که ممکن است اسکرول را جابه‌جا کند صدا زده می‌شود
+void stickToRightIfNeeded() {
+    if (!rtlMode || !stickRight || treeScrollPane == null) return
+    // دوبار invokeLater: یک بار بعد از پایان layout فعلی، یک بار بعد از layout ناشی از revalidate
+    SwingUtilities.invokeLater {
+        SwingUtilities.invokeLater { scrollHorizontalToRightNow() }
+    }
+}
+
+void scrollHorizontalToRightNow() {
+    if (!rtlMode || !stickRight || treeScrollPane == null) return
+    if (userTouchingScrollH) return
+    JViewport viewport = treeScrollPane.getViewport()
+    if (viewport == null || viewport.getView() == null) return
+
+    int viewWidth = (int) viewport.getViewSize().width
+    int extentWidth = (int) viewport.getExtentSize().width
+    int targetX = Math.max(0, viewWidth - extentWidth)
+    Point current = viewport.getViewPosition()
+    if ((int) current.x == targetX) return
+
+    programmaticScrollH = true
+    try {
+        viewport.setViewPosition(new Point(targetX, (int) current.y))
+    } finally {
+        programmaticScrollH = false
+    }
+}
+
+// فقط وقتی کاربر خودش اسکرول را حرکت می‌دهد، تصمیم می‌گیریم بچسبد یا نه
+void installRightStickyScroll() {
+    JScrollBar bar = treeScrollPane.getHorizontalScrollBar()
+
+    // 1) تشخیص حرکت دستی کاربر (کشیدن دستگیره یا کلیک روی فلش‌ها)
+    MouseAdapter userTouch = new MouseAdapter() {
+        @Override
+        void mousePressed(MouseEvent e) { userTouchingScrollH = true }
+
+        @Override
+        void mouseReleased(MouseEvent e) {
+            userTouchingScrollH = false
+            SwingUtilities.invokeLater { stickRight = horizontalAtRightEdge() }
+        }
+    }
+    bar.addMouseListener(userTouch)
+    bar.getComponents().each { it.addMouseListener(userTouch) }
+
+    bar.addAdjustmentListener({ AdjustmentEvent e ->
+        if (programmaticScrollH) return
+        if (userTouchingScrollH) stickRight = horizontalAtRightEdge()
+    } as AdjustmentListener)
+
+    // 2) Shift + چرخ ماوس (اسکرول افقی دستی)
+    treeScrollPane.addMouseWheelListener({ MouseWheelEvent e ->
+        if (e.isShiftDown()) {
+            SwingUtilities.invokeLater { stickRight = horizontalAtRightEdge() }
+        }
+    } as MouseWheelListener)
+
+    // 3) هر وقت اندازه‌ی درخت یا ویوپورت عوض شد، دوباره به راست بچسب
+    ComponentAdapter resizeWatcher = new ComponentAdapter() {
+        @Override
+        void componentResized(ComponentEvent e) { stickToRightIfNeeded() }
+    }
+    tagTree.addComponentListener(resizeWatcher)
+    treeScrollPane.getViewport().addComponentListener(resizeWatcher)
+}
+// ===== ظاهر درختی با خطوط متصل و جعبه‌های +/- =====
+Color treeLineColor() {
+    Color base = UITools.getTextColorForBackground(mapBackground())
+    return new Color(base.getRed(), base.getGreen(), base.getBlue(), 130) // کم رنگ یا پر رنگ تر کردن خطوط متصل کننده درخت بن:تنظیمات عدد بزرگ تر پر رنگ تر
+    
+}
+
+
+// اندازه‌ی جعبه بر اساس قلم (همیشه فرد، تا مرکز دقیق داشته باشد)بن: تنظیمات 
+int treeBoxSize() {
+    int size = Math.max(9, (int) (panelTextFontSize * treeBoxScale))
+    if (size % 2 == 0) size++
+    return size
+}
+
+void installTreeLineStyle() {
+    if (tagTree == null) return
+    def treeUi = tagTree.getUI()
+    if (!(treeUi instanceof BasicTreeUI)) return
+
+    int boxSize = treeBoxSize()
+    Color line = treeLineColor()
+    Color fill = mapBackground()
+    Color symbol = UITools.getTextColorForBackground(mapBackground())
+    symbol = new Color(symbol.getRed(), symbol.getGreen(), symbol.getBlue(), 255)
+
+    BasicTreeUI basicUi = (BasicTreeUI) treeUi
+    basicUi.setRightChildIndent(boxSize + 7) //بن: تنظیمات اندازه خط متصل کننده افقی از جعبه به تگ
+    basicUi.setLeftChildIndent(boxSize.intdiv(2) + 2)
+        basicUi.setExpandedIcon(new BoxToggleIcon(true, boxSize, line, fill, symbol, treeSymbolThickness))
+        basicUi.setCollapsedIcon(new BoxToggleIcon(false, boxSize, line, fill, symbol, treeSymbolThickness))
+
+    tagTree.putClientProperty("JTree.lineStyle", "None")
+    tagTree.revalidate()
+    tagTree.repaint()
+}
+
+int treeKnobX(boolean ltr, Rectangle bounds, int rightIndent) {
+    return ltr ? (int) bounds.x - rightIndent + 1
+               : (int) bounds.x + (int) bounds.width + rightIndent - 1
+}
+
+void paintTreeConnectors(Graphics g, JTree tree) {
+    try {
+        if (tree.getRowCount() == 0) return
+        def treeUi = tree.getUI()
+        if (!(treeUi instanceof BasicTreeUI)) return
+        int rightIndent = ((BasicTreeUI) treeUi).getRightChildIndent()
+        boolean ltr = tree.getComponentOrientation().isLeftToRight()
+        int half = treeBoxSize().intdiv(2)
+
+        Rectangle clip = g.getClipBounds()
+        if (clip == null) clip = tree.getVisibleRect()
+        int firstRow = tree.getClosestRowForLocation(0, (int) clip.y)
+        int lastRow = tree.getClosestRowForLocation(0, (int) clip.y + (int) clip.height)
+        if (firstRow < 0 || lastRow < 0) return
+
+        Graphics2D g2 = (Graphics2D) g.create()
+        try {
+            g2.setColor(treeLineColor())
+            for (int row = firstRow; row <= lastRow; row++) {
+                TreePath path = tree.getPathForRow(row)
+                if (path == null) continue
+                int depth = path.getPathCount() - 1        // سطح اول = 1
+                if (depth < 1) continue
+                Rectangle b = tree.getPathBounds(path)
+                if (b == null) continue
+
+                DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent()
+                boolean hasBox = !node.isLeaf()
+
+                int top = (int) b.y
+                int bottom = (int) b.y + (int) b.height
+                int centerY = top + (int) ((int) b.height / 2)
+                int knobX = treeKnobX(ltr, b, rightIndent)
+                int edgeX = ltr ? (int) b.x : (int) b.x + (int) b.width
+
+                // ----- خط عمودیِ خود ردیف (هرگز داخل جعبه نمی‌رود) -----
+                // بالا: از بالای ردیف تا لبه‌ی بالای جعبه (یا تا مرکز اگر جعبه ندارد)
+                // فقط اولین ردیف سطح اول از مرکز شروع می‌شود، چون بالاتر از آن چیزی نیست
+                boolean firstTop = depth == 1 && node.getPreviousSibling() == null
+                int upStart = firstTop ? centerY : top
+                int upEnd = hasBox ? centerY - half - 1 : centerY
+                if (upStart <= upEnd) g2.drawLine(knobX, upStart, knobX, upEnd)
+
+                // پایین: از لبه‌ی پایین جعبه (یا مرکز) تا پایین ردیف، اگر هم‌رده‌ی بعدی دارد
+                if (node.getNextSibling() != null) {
+                    int downStart = hasBox ? centerY + half + 1 : centerY
+                    g2.drawLine(knobX, downStart, knobX, bottom)
+                }
+
+                // ----- خط افقی تا تگ -----
+                // با جعبه: از لبه‌ی جعبه شروع می‌شود؛ بدون جعبه: از خط عمودی
+                int gap = hasBox ? half + 1 : 0
+                if (ltr) {
+                    g2.drawLine(knobX + gap, centerY, edgeX, centerY)
+                } else {
+                    g2.drawLine(edgeX, centerY, knobX - gap, centerY)
+                }
+
+                // ----- خطوط عمودیِ اجداد که هم‌رده‌ی بعدی دارند -----
+                // این ردیف جعبه‌ی اجداد را ندارد، پس خط از کل ارتفاع می‌گذرد
+                TreePath ancestor = path.getParentPath()
+                while (ancestor != null && ancestor.getPathCount() - 1 >= 1) {
+                    DefaultMutableTreeNode ancestorNode =
+                            (DefaultMutableTreeNode) ancestor.getLastPathComponent()
+                    if (ancestorNode.getNextSibling() != null) {
+                        Rectangle ab = tree.getPathBounds(ancestor)
+                        if (ab != null) {
+                            int ax = treeKnobX(ltr, ab, rightIndent)
+                            g2.drawLine(ax, top, ax, bottom)
+                        }
+                    }
+                    ancestor = ancestor.getParentPath()
+                }
+            }
+        } finally {
+            g2.dispose()
+        }
+    } catch (Throwable ignored) {
+        // رسم خطوط نباید هیچ‌وقت جلوی نمایش درخت را بگیرد
+    }
+}
+// لیبل را داخل یک پنل شفاف می‌گذارد تا بالا و پایین آن فاصله‌ی خالی داشته باشد
+JComponent wrapWithRowGap(JLabel label) {
+    if (rowGapPx <= 0) return label
+    JPanel holder = new JPanel(new BorderLayout())
+    holder.setOpaque(false)
+    holder.setBorder(BorderFactory.createEmptyBorder(rowGapPx, 0, rowGapPx, 0))
+    holder.setComponentOrientation(tagTree.getComponentOrientation())
+    holder.add(label, BorderLayout.CENTER)
+    return holder
 }
 
 void showStatus(String message) {
@@ -6092,7 +6690,7 @@ void revealTagInTree(String qualifiedContent) {
         tagTree.expandPath(path.getParentPath())
     }
     tagTree.setSelectionPath(path)
-    tagTree.scrollPathToVisible(path)
+    scrollPathVertically(path)
     showStatus("📍 Located: ${qualifiedContent}")
 }
 
