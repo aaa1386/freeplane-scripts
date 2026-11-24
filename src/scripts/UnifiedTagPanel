@@ -16,7 +16,6 @@ SPDX-License-Identifier: GPL-2.0-or-later
 کلود
 https://claude.ai/chat/1fd5a035-79cd-4a70-9cc3-939124d4f470
 
-تغییر رنگ متن تگ با تغییر رنگ خود تگ
 تغییرات
 v3.0
 فوکوس کادر جستجو با زدن اسپیس یا فاصله 
@@ -533,13 +532,6 @@ import java.util.List
 @Field boolean fastWaitingForParent = false
 @Field int fastRemoveDelayMs = 1
 @Field JTextField fastChildNameField = null
-
-// ===== OR search =====
-// وقتی روشن است، متنِ فیلتر با فاصله به کلمات شکسته می‌شود و
-// هر تگی که حداقل یکی از آن کلمات را داشته باشد پیدا می‌شود.
-// وقتی خاموش است، کل متن به صورت یک زیررشته‌ی پیوسته جستجو می‌شود (رفتار فعلی).
-@Field final String OR_SEARCH_KEY = "unifiedTagPanel.orSearch"
-@Field JButton orButton
 
 @Field final String PANEL_NAME = "UnifiedTagPanel"
 @Field final String FILTER_FIELD_NAME = "UnifiedTagPanelField"
@@ -1774,34 +1766,11 @@ JPanel createFilterBox() {
         void mouseExited(MouseEvent e) { filterModeButton.setBackground(barColor) }
     })
     filterModeButton.addActionListener({ ActionEvent e -> applyFilterHides(!isFilterHides()) } as ActionListener)
-    // ===== دکمه‌ی OR =====
-    orButton = new JButton("OR")
-    orButton.setName("UnifiedTagPanelOrButton")
-    orButton.setToolTipText(orSearchTooltip())
-    orButton.setFont(itemFont().deriveFont(Font.BOLD))
-    orButton.setPreferredSize(new Dimension(46, 30))
-    orButton.setOpaque(true)
-    orButton.setContentAreaFilled(true)
-    orButton.setFocusPainted(false)
-    orButton.setBorder(BorderFactory.createEmptyBorder())
-    orButton.setBackground(isOrSearch() ? editModeOnColor : barColor)
-    orButton.setForeground(isOrSearch() ? Color.WHITE : barTextColor())
-    orButton.addMouseListener(new MouseAdapter() {
-        @Override
-        void mouseEntered(MouseEvent e) {
-            if (!isOrSearch()) orButton.setBackground(barHoverColor())
-        }
-        @Override
-        void mouseExited(MouseEvent e) {
-            if (!isOrSearch()) orButton.setBackground(barColor)
-        }
-    })
-    orButton.addActionListener({ ActionEvent e -> applyOrSearch(!isOrSearch()) } as ActionListener)
+
+    // Place buttons
     JPanel buttons = transparentPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0))
-    buttons.add(orButton)
     buttons.add(filterModeButton)
     buttons.add(clearButton)
-    
 
     JPanel filterBox = transparentPanel(new BorderLayout())
     filterBox.add(filterField, BorderLayout.CENTER)
@@ -1919,7 +1888,7 @@ void buildFlatUsageRows(DefaultMutableTreeNode root, def state, String needle) {
 
         entries = entries.findAll { entry ->
             (!shouldHideUnused() || categoryUsageOf((String) entry.qn) > 0) &&
-                    (needle.isEmpty() || filterMatches((String) entry.qn, needle))
+                    (needle.isEmpty() || foldAccents(((String) entry.qn).toLowerCase()).contains(needle))
         }
     entries.sort { a, b ->
         int byUsage = categoryUsageOf((String) b.qn) <=> categoryUsageOf((String) a.qn)
@@ -2316,7 +2285,8 @@ JComponent createTreeArea() {
         // ===== کلیک چپ/راست =====
             // ===== کلیک چپ/راست =====
     tagTree.addMouseListener(new MouseAdapter() {
-        @Override        
+        @Override
+        @Override
         void mousePressed(MouseEvent e) {
             if (e.isPopupTrigger()) {
                 showContextMenu(e)
@@ -2535,7 +2505,7 @@ void refreshTree(boolean force) {
 
                 List uncategorizedMatches = state.uncategorizedTags.findAll { item ->
                     (!shouldHideUnused() || categoryUsageOf(item.qualifiedName) > 0) &&
-                            (pruningNeedle.isEmpty() || filterMatches(item.qualifiedName, pruningNeedle))
+                            (pruningNeedle.isEmpty() || foldAccents(item.qualifiedName.toLowerCase()).contains(pruningNeedle))
                 }
         if (!uncategorizedMatches.isEmpty()) {
             DefaultMutableTreeNode bucket = new DefaultMutableTreeNode(
@@ -2610,12 +2580,11 @@ void refreshTree(boolean force) {
     if (total == 0) {
         showStatus("No tags in this map yet — type and press Enter to create one")
     } else if (!needle.isEmpty()) {
-            showStatus(shown + " of " + total + " tags match" +
-                    (isOrSearch() ? " (OR)" : "") +
-                    (isFilterHides() ? "" : " (highlighted, nothing hidden)") +
-                    (shown == 0 ? " — Enter creates '" + filterText + "'" : ""))
-        } else if (showUsageCounts) {
-            int unused = countUnusedTags(state)
+        showStatus(shown + " of " + total + " tags match" +
+                (isFilterHides() ? "" : " (highlighted, nothing hidden)") +
+                (shown == 0 ? " — Enter creates '" + filterText + "'" : ""))
+    } else if (showUsageCounts) {
+        int unused = countUnusedTags(state)
         showStatus(total + " tags" + (unused > 0 ? " · " + unused + " unused" : "") +
                 (shouldHideUnused() ? " (unused hidden)" : "") +
                 (isSortByUsage() ? " · by usage" : ""))
@@ -2630,7 +2599,7 @@ void refreshTree(boolean force) {
 }
 
 DefaultMutableTreeNode buildCategoryNode(def cat, String needle) {
-    boolean selfMatches = needle.isEmpty() || filterMatches(cat.qualifiedName, needle)
+    boolean selfMatches = needle.isEmpty() || foldAccents(cat.qualifiedName.toLowerCase()).contains(needle)
         if (shouldHideUnused() && categoryUsageOf(cat.qualifiedName) == 0) return null
 
     List<DefaultMutableTreeNode> children = []
@@ -2853,52 +2822,9 @@ boolean rowMatchesFilter(TagRow row) {
     if (row == null || row.synthetic || row.qualifiedName == null) return false
     String needle = foldAccents(filterText.toLowerCase())
     if (needle.isEmpty()) return true
-    return filterMatches(row.qualifiedName, needle)
-}
-boolean isOrSearch() {
-    try {
-        return ResourceController.getResourceController().getBooleanProperty(OR_SEARCH_KEY, false)
-    } catch (Throwable t) {
-        return false
-    }
+    return foldAccents(row.qualifiedName.toLowerCase()).contains(needle)
 }
 
-void applyOrSearch(boolean enabled) {
-    try {
-        ResourceController.getResourceController().setProperty(OR_SEARCH_KEY, enabled)
-    } catch (Throwable t) {
-        showStatus("Could not save the option: " + t.getMessage())
-    }
-    if (orButton != null) {
-        orButton.setBackground(enabled ? editModeOnColor : barColor)
-        orButton.setForeground(enabled ? Color.WHITE : barTextColor())
-        orButton.setToolTipText(orSearchTooltip())
-    }
-    refreshTree()
-}
-
-String orSearchTooltip() {
-    return isOrSearch()
-            ? "OR search ON: words separated by spaces match any (typing 'a b' finds tags with 'a' OR 'b')"
-            : "OR search OFF: the whole text is matched as-is (typing 'a b' looks for 'a b')"
-}
-
-// متنِ فیلتر را (که already foldAccents شده) به کلمات می‌شکند.
-// وقتی OR خاموش است، یک کلمه‌ی واحد برمی‌گرداند تا رفتار قبلی حفظ شود.
-List<String> splitFilterWords(String foldedNeedle) {
-    if (foldedNeedle == null || foldedNeedle.isEmpty()) return []
-    if (!isOrSearch()) return [foldedNeedle]
-    return foldedNeedle.split(/\s+/).findAll { it -> !it.isEmpty() }
-}
-
-// آیا این متن با needle مطابقت دارد؟ (needle باید already folded باشد)
-boolean filterMatches(String haystack, String foldedNeedle) {
-    if (foldedNeedle == null || foldedNeedle.isEmpty()) return true
-    List<String> words = splitFilterWords(foldedNeedle)
-    if (words.isEmpty()) return true
-    String foldedHaystack = foldAccents(haystack.toLowerCase())
-    return words.any { it -> foldedHaystack.contains(it) }
-}
 boolean isFilterHides() {
     try {
         return ResourceController.getResourceController().getBooleanProperty(FILTER_HIDES_KEY, true)
@@ -2929,31 +2855,13 @@ String filterModeTooltip() {
 List<int[]> matchRangesIn(String text, String foldedNeedle) {
     List<int[]> ranges = []
     if (foldedNeedle.isEmpty()) return ranges
-    List<String> words = splitFilterWords(foldedNeedle)
-    if (words.isEmpty()) return ranges
     String haystack = foldAccents(text.toLowerCase())
-    for (String word : words) {
-        int at = haystack.indexOf(word)
-        while (at >= 0) {
-            ranges.add([at, at + word.length()] as int[])
-            at = haystack.indexOf(word, at + word.length())
-        }
+    int at = haystack.indexOf(foldedNeedle)
+    while (at >= 0) {
+        ranges.add([at, at + foldedNeedle.length()] as int[])
+        at = haystack.indexOf(foldedNeedle, at + foldedNeedle.length())
     }
-    if (ranges.isEmpty()) return ranges
-    // مرتب‌سازی و ادغام بازه‌های هم‌پوشان/مجاور (لازمِ حالت OR)
-    ranges.sort { a, b -> a[0] <=> b[0] }
-    List<int[]> merged = []
-    for (int[] r : ranges) {
-        if (!merged.isEmpty()) {
-            int[] last = merged.last()
-            if (r[0] <= last[1]) {
-                last[1] = Math.max(last[1], r[1])
-                continue
-            }
-        }
-        merged.add(r)
-    }
-    return merged
+    return ranges
 }
 
 String highlightedFragment(String text) {
